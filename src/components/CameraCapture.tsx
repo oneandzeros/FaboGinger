@@ -13,6 +13,9 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onImageCaptured }) => {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imageRotation, setImageRotation] = useState(0);
+  const [capturedImageData, setCapturedImageData] = useState<string | null>(null);
+  const [originalImageData, setOriginalImageData] = useState<string | null>(null);
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -58,7 +61,40 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onImageCaptured }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleCapture = () => {
+  const rotateImage = (imageData: string, angle: number): Promise<string> => {
+    return new Promise<string>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(imageData);
+          return;
+        }
+
+        // 计算旋转后的画布尺寸
+        let width = img.width;
+        let height = img.height;
+        if (angle === 90 || angle === 270) {
+          [width, height] = [height, width];
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        // 应用旋转
+        ctx.translate(width / 2, height / 2);
+        ctx.rotate((angle * Math.PI) / 180);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+      };
+      img.onerror = () => resolve(imageData);
+      img.src = imageData;
+    });
+  };
+
+  const handleCapture = async () => {
     if (!isCameraActive || !videoRef.current || !canvasRef.current) {
       if (!isCameraActive) {
         setError('请先启用摄像头或上传图片');
@@ -73,20 +109,57 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onImageCaptured }) => {
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    onImageCaptured(dataUrl);
+    
+    // 保存原始图片
+    setOriginalImageData(dataUrl);
+    
+    // 应用当前旋转角度
+    const rotatedDataUrl = await rotateImage(dataUrl, imageRotation);
+    setCapturedImageData(rotatedDataUrl);
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const result = reader.result;
       if (typeof result === 'string') {
-        onImageCaptured(result);
+        // 保存原始图片
+        setOriginalImageData(result);
+        
+        // 应用当前旋转角度
+        const rotatedDataUrl = await rotateImage(result, imageRotation);
+        setCapturedImageData(rotatedDataUrl);
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleRotateLeft = async () => {
+    const newRotation = (imageRotation - 90 + 360) % 360;
+    setImageRotation(newRotation);
+    if (originalImageData) {
+      // 基于原始图片和新的旋转角度生成旋转后的图片
+      const rotatedDataUrl = await rotateImage(originalImageData, newRotation);
+      setCapturedImageData(rotatedDataUrl);
+    }
+  };
+
+  const handleRotateRight = async () => {
+    const newRotation = (imageRotation + 90) % 360;
+    setImageRotation(newRotation);
+    if (originalImageData) {
+      // 基于原始图片和新的旋转角度生成旋转后的图片
+      const rotatedDataUrl = await rotateImage(originalImageData, newRotation);
+      setCapturedImageData(rotatedDataUrl);
+    }
+  };
+
+  const handleConfirmImage = () => {
+    if (capturedImageData) {
+      onImageCaptured(capturedImageData);
+    }
   };
 
   return (
@@ -94,27 +167,67 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onImageCaptured }) => {
       <div className="camera-preview">
         <video ref={videoRef} playsInline muted className="camera-video" />
         <canvas ref={canvasRef} className="capture-canvas" />
+        {capturedImageData && (
+          <img 
+            src={capturedImageData} 
+            alt="已拍摄" 
+            style={{ 
+              width: '100%', 
+              height: '100%', 
+              objectFit: 'contain',
+              position: 'absolute',
+              top: 0,
+              left: 0
+            }} 
+          />
+        )}
       </div>
 
       <div className="camera-actions">
-        {!isCameraActive ? (
-          <button onClick={startCamera} className="btn btn-primary" disabled={isInitializing}>
-            {isInitializing ? '正在启动摄像头…' : '启用摄像头'}
-          </button>
+        {!capturedImageData ? (
+          <>
+            {!isCameraActive ? (
+              <button onClick={startCamera} className="btn btn-primary" disabled={isInitializing}>
+                {isInitializing ? '正在启动摄像头…' : '启用摄像头'}
+              </button>
+            ) : (
+              <>
+                <button onClick={handleCapture} className="btn btn-primary" disabled={!isCameraReady}>
+                  {isCameraReady ? '拍照识别' : '摄像头准备中…'}
+                </button>
+                <button onClick={stopCamera} className="btn btn-secondary">
+                  关闭摄像头
+                </button>
+              </>
+            )}
+            <label className="btn btn-secondary">
+              选择图片上传
+              <input type="file" accept="image/*" onChange={handleFileUpload} hidden />
+            </label>
+          </>
         ) : (
           <>
-            <button onClick={handleCapture} className="btn btn-primary" disabled={!isCameraReady}>
-              {isCameraReady ? '拍照识别' : '摄像头准备中…'}
+            <button onClick={handleConfirmImage} className="btn btn-primary">
+              确认使用此图片
             </button>
-            <button onClick={stopCamera} className="btn btn-secondary">
-              关闭摄像头
+            <button onClick={handleRotateLeft} className="btn btn-secondary">
+              左转90°
+            </button>
+            <button onClick={handleRotateRight} className="btn btn-secondary">
+              右转90°
+            </button>
+            <button 
+              onClick={() => {
+                setCapturedImageData(null);
+                setOriginalImageData(null);
+                setImageRotation(0);
+              }} 
+              className="btn btn-secondary"
+            >
+              重新选择
             </button>
           </>
         )}
-        <label className="btn btn-secondary">
-          选择图片上传
-          <input type="file" accept="image/*" onChange={handleFileUpload} hidden />
-        </label>
       </div>
 
       {error && <p className="camera-error">{error}</p>}

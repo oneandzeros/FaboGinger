@@ -32,11 +32,20 @@ const NestingPanel: React.FC<NestingPanelProps> = ({ materialSvg, actualSize, on
 
   const handleDownload = () => {
     if (!materialSvg) return;
+    
+    // 生成时间戳（月日时分）
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hour = String(now.getHours()).padStart(2, '0');
+    const minute = String(now.getMinutes()).padStart(2, '0');
+    const timestamp = `${month}${day}-${hour}${minute}`;
+    
     const blob = new Blob([materialSvg], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'material.svg';
+    a.download = `material-${timestamp}.svg`;
     a.click();
     URL.revokeObjectURL(url);
   };

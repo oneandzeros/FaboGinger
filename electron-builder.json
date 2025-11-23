@@ -9,6 +9,34 @@
   "mac": {
     "category": "public.app-category.graphics-design"
   },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "ia32"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "publisherName": "LaserMaterial",
+    "verifyUpdateCodeSignature": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "allowElevation": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "激光切割余料再利用工具",
+    "deleteAppDataOnUninstall": false,
+    "warningsAsErrors": false,
+    "artifactName": "${productName}-Setup-${version}.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-portable.exe"
+  },
   "directories": {
     "buildResources": "build",
     "output": "release"
