@@ -89,9 +89,9 @@
       },
       "manual": {
         "title": "【手动添加图形】",
-        "padding": "留白",
-        "cornerRadius": "圆角",
-        "strokeWidth": "线宽",
+        "padding": "留白 (mm)",
+        "cornerRadius": "圆角 (mm)",
+        "strokeWidth": "线宽 (mm)",
         "color": "颜色",
         "addRoundedRect": "添加圆角矩形",
         "addCircle": "添加圆形",
@@ -99,6 +99,8 @@
       },
       "autoFill": {
         "title": "【自动填充矩形】",
+        "maxRectWidth": "最大宽度 (mm)",
+        "maxRectHeight": "最大高度 (mm)",
         "gap": "矩形间距 (mm)",
         "step": "扫描步长 (mm)",
         "button": "自动填充矩形",
@@ -148,14 +150,47 @@
     "optimize": "调用 Deepnest 排版",
     "optimizing": "优化中…",
     "download": "下载当前 SVG",
+    "downloadResult": "下载排版结果",
     "hint": "上传需要排版的SVG文件，系统将自动优化排版",
     "actualSize": "实际尺寸：{{width}} × {{height}} mm",
     "noActualSize": "未设置实际尺寸",
     "callingDeepnest": "正在调用 Deepnest ...",
     "deepnestComplete": "Deepnest 调用完成",
     "deepnestFailed": "调用失败",
+    "partsSection": {
+      "title": "零件文件",
+      "uploadParts": "上传零件 SVG",
+      "uploadHint": "可以上传多个 SVG 文件作为要排版的零件",
+      "noParts": "尚未上传零件",
+      "partsCount": "已上传 {{count}} 个零件",
+      "removePart": "删除",
+      "preview": "预览"
+    },
+    "parametersSection": {
+      "title": "排版参数",
+      "rotation": "允许旋转角度",
+      "rotationAll": "允许所有角度",
+      "rotation90": "仅 90° 倍数",
+      "rotationNone": "不允许旋转",
+      "spacing": "零件间距 (mm)",
+      "quality": "排版质量",
+      "qualityFast": "快速",
+      "qualityBalanced": "平衡",
+      "qualityBest": "最佳"
+    },
+    "resultSection": {
+      "title": "排版结果",
+      "efficiency": "材料利用率",
+      "partsPlaced": "已放置零件",
+      "partsTotal": "共 {{total}} 个",
+      "viewResult": "查看结果",
+      "noResult": "尚未进行排版优化"
+    },
     "error": {
-      "electronNotInit": "Electron API 未初始化"
+      "electronNotInit": "Electron API 未初始化",
+      "noParts": "请至少上传一个零件 SVG",
+      "uploadFailed": "上传失败：{{message}}",
+      "invalidSvg": "无效的 SVG 文件"
     }
   }
 }

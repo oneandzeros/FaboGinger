@@ -89,9 +89,9 @@
       },
       "manual": {
         "title": "[Manually Add Shapes]",
-        "padding": "Padding",
-        "cornerRadius": "Corner Radius",
-        "strokeWidth": "Stroke Width",
+        "padding": "Padding (mm)",
+        "cornerRadius": "Corner Radius (mm)",
+        "strokeWidth": "Stroke Width (mm)",
         "color": "Color",
         "addRoundedRect": "Add Rounded Rectangle",
         "addCircle": "Add Circle",
@@ -99,6 +99,8 @@
       },
       "autoFill": {
         "title": "[Auto-fill Rectangles]",
+        "maxRectWidth": "Max Width (mm)",
+        "maxRectHeight": "Max Height (mm)",
         "gap": "Rectangle Gap (mm)",
         "step": "Scan Step (mm)",
         "button": "Auto-fill Rectangles",
@@ -148,14 +150,47 @@
     "optimize": "Call Deepnest Nesting",
     "optimizing": "Optimizing…",
     "download": "Download Current SVG",
+    "downloadResult": "Download Result",
     "hint": "Upload SVG files to be nested, the system will automatically optimize the layout",
     "actualSize": "Actual Size: {{width}} × {{height}} mm",
     "noActualSize": "No actual size set",
     "callingDeepnest": "Calling Deepnest ...",
     "deepnestComplete": "Deepnest call completed",
     "deepnestFailed": "Call failed",
+    "partsSection": {
+      "title": "Parts Files",
+      "uploadParts": "Upload Parts SVG",
+      "uploadHint": "You can upload multiple SVG files as parts to be nested",
+      "noParts": "No parts uploaded yet",
+      "partsCount": "{{count}} parts uploaded",
+      "removePart": "Remove",
+      "preview": "Preview"
+    },
+    "parametersSection": {
+      "title": "Nesting Parameters",
+      "rotation": "Allowed Rotation Angles",
+      "rotationAll": "All angles",
+      "rotation90": "90° multiples only",
+      "rotationNone": "No rotation",
+      "spacing": "Part Spacing (mm)",
+      "quality": "Nesting Quality",
+      "qualityFast": "Fast",
+      "qualityBalanced": "Balanced",
+      "qualityBest": "Best"
+    },
+    "resultSection": {
+      "title": "Nesting Result",
+      "efficiency": "Material Efficiency",
+      "partsPlaced": "Parts Placed",
+      "partsTotal": "{{total}} total",
+      "viewResult": "View Result",
+      "noResult": "No nesting result yet"
+    },
     "error": {
-      "electronNotInit": "Electron API not initialized"
+      "electronNotInit": "Electron API not initialized",
+      "noParts": "Please upload at least one part SVG",
+      "uploadFailed": "Upload failed: {{message}}",
+      "invalidSvg": "Invalid SVG file"
     }
   }
 }

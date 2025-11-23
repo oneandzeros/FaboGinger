@@ -41,7 +41,7 @@ function App() {
         <div className="app-header-content">
           <div className="app-header-left">
             <img 
-              src="/FABO.png" 
+              src="./FABO.png" 
               alt="Logo" 
               className="app-logo"
               onError={(e) => {

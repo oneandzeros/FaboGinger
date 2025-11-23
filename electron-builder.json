@@ -6,6 +6,9 @@
     "dist-react/**/*",
     "package.json"
   ],
+  "asar": true,
+  "asarUnpack": [],
+  "compression": "maximum",
   "mac": {
     "category": "public.app-category.graphics-design"
   },
@@ -40,5 +43,6 @@
   "directories": {
     "buildResources": "build",
     "output": "release"
-  }
+  },
+  "electronLanguages": ["en-US", "zh-CN"]
 }

@@ -193,10 +193,10 @@ const ImageProcessor: React.FC<ImageProcessorProps> = ({ imageData, onSvgGenerat
     if (!svgResult) return;
     let svgToDownload = svgResult.svg;
 
-    // 在导出前确保边界框尺寸正确
+    // 在导出前确保边界框尺寸正确（但不改变位置，保持与预览一致）
     if (boundaryBox.hasBoundaryBox) {
       svgToDownload = svgManipulation.normalizeBoundaryBoxDimensions(svgToDownload);
-      svgToDownload = svgManipulation.scaleSvgToBoundaryBox(svgToDownload);
+      // 不再调用 scaleSvgToBoundaryBox，保持边界框的原始位置与预览一致
     }
 
     // 生成时间戳（月日时分）

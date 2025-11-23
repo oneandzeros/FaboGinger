@@ -3,9 +3,92 @@
  * 管理手动添加图形和自动填充的逻辑
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SvgProcessResult, suggestRectanglesFromMask, RectanglePackingProgress } from '../utils/imageProcessor';
 import { getBoundaryBoxBounds, parseSvgViewBox } from '../utils/svgUtils';
+
+/**
+ * 合并多个相邻矩形的外轮廓，去除重合边
+ * 使用边界框算法：计算所有矩形的并集边界框
+ */
+function mergeRectangleOutlines(rects: Array<{ x: number; y: number; w: number; h: number }>): string {
+  if (rects.length === 0) return '';
+  if (rects.length === 1) {
+    const r = rects[0];
+    return `M ${r.x} ${r.y} L ${r.x + r.w} ${r.y} L ${r.x + r.w} ${r.y + r.h} L ${r.x} ${r.y + r.h} Z`;
+  }
+
+  // 对于多个矩形，我们需要找到它们的外轮廓
+  // 方法：收集所有不在其他矩形内部的角点，然后按顺序连接
+  
+  const tolerance = 0.5; // 容差
+  const corners: Array<{ x: number; y: number; rectIndex: number }> = [];
+  
+  // 收集所有矩形的角点
+  rects.forEach((r, idx) => {
+    corners.push(
+      { x: r.x, y: r.y, rectIndex: idx },
+      { x: r.x + r.w, y: r.y, rectIndex: idx },
+      { x: r.x + r.w, y: r.y + r.h, rectIndex: idx },
+      { x: r.x, y: r.y + r.h, rectIndex: idx }
+    );
+  });
+
+  // 过滤出在外边界上的角点（不在任何其他矩形的内部）
+  const outerCorners: Array<{ x: number; y: number }> = [];
+  
+  corners.forEach((corner) => {
+    // 检查这个角点是否在其他矩形内部（不包括边界）
+    const isInsideOther = rects.some((r, idx) => {
+      if (idx === corner.rectIndex) return false;
+      return corner.x > r.x + tolerance && corner.x < r.x + r.w - tolerance &&
+             corner.y > r.y + tolerance && corner.y < r.y + r.h - tolerance;
+    });
+    
+    if (!isInsideOther) {
+      // 避免重复点
+      const exists = outerCorners.some(p => 
+        Math.abs(p.x - corner.x) < tolerance && Math.abs(p.y - corner.y) < tolerance
+      );
+      if (!exists) {
+        outerCorners.push({ x: corner.x, y: corner.y });
+      }
+    }
+  });
+
+  // 如果没有外边界点，使用边界框
+  if (outerCorners.length < 3) {
+    const minX = Math.min(...rects.map(r => r.x));
+    const minY = Math.min(...rects.map(r => r.y));
+    const maxX = Math.max(...rects.map(r => r.x + r.w));
+    const maxY = Math.max(...rects.map(r => r.y + r.h));
+    return `M ${minX} ${minY} L ${maxX} ${minY} L ${maxX} ${maxY} L ${minX} ${maxY} Z`;
+  }
+
+  // 计算边界框中心
+  const minX = Math.min(...outerCorners.map(p => p.x));
+  const minY = Math.min(...outerCorners.map(p => p.y));
+  const maxX = Math.max(...outerCorners.map(p => p.x));
+  const maxY = Math.max(...outerCorners.map(p => p.y));
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  // 按角度排序（顺时针或逆时针）
+  outerCorners.sort((a, b) => {
+    const angleA = Math.atan2(a.y - centerY, a.x - centerX);
+    const angleB = Math.atan2(b.y - centerY, b.x - centerX);
+    return angleA - angleB;
+  });
+
+  // 生成路径
+  let path = `M ${outerCorners[0].x} ${outerCorners[0].y}`;
+  for (let i = 1; i < outerCorners.length; i++) {
+    path += ` L ${outerCorners[i].x} ${outerCorners[i].y}`;
+  }
+  path += ' Z';
+
+  return path;
+}
 
 export type ShapeMessageTone = 'info' | 'success' | 'warning' | 'error';
 
@@ -16,6 +99,8 @@ interface ShapeState {
   strokeColor: string;
   gap: number; // 仅自动填充使用
   step: number; // 仅自动填充使用
+  maxRectWidth: number; // 最大矩形宽度（mm）
+  maxRectHeight: number; // 最大矩形高度（mm）
 }
 
 interface UseShapeToolsProps {
@@ -42,12 +127,14 @@ interface UseShapeToolsReturn {
 }
 
 const DEFAULT_SHAPE_STATE: ShapeState = {
-  padding: 12,
+  padding: 2,
   cornerRadius: 2,
   strokeWidth: 0.1,
   strokeColor: '#ff4d4f',
   gap: 0,
   step: 1.0,
+  maxRectWidth: 200,
+  maxRectHeight: 200,
 };
 
 export const useShapeTools = ({
@@ -63,6 +150,15 @@ export const useShapeTools = ({
   const [shapeMessage, setShapeMessageState] = useState<string | null>(null);
   const [shapeMessageTone, setShapeMessageTone] = useState<ShapeMessageTone>('info');
   const autoFillAbortRef = useRef<boolean>(false);
+  // 使用ref保存最新的shapeState，确保异步函数能访问到最新值
+  const shapeStateRef = useRef<ShapeState>(shapeState);
+  
+  // 当shapeState更新时，同步更新ref
+  useEffect(() => {
+    shapeStateRef.current = shapeState;
+  }, [shapeState]);
+
+  const setShapeMessage = (message: string | null, tone: ShapeMessageTone = 'info') => {
 
   const setShapeMessage = (message: string | null, tone: ShapeMessageTone = 'info') => {
     setShapeMessageState(message);
@@ -117,11 +213,93 @@ export const useShapeTools = ({
       const ns = 'http://www.w3.org/2000/svg';
       let element: Element;
 
-      // 限制在边界框内部
-      const boxX = boundaryBounds.x + paddingX;
-      const boxY = boundaryBounds.y + paddingY;
-      const boxWidth = Math.max(boundaryBounds.width - paddingX * 2, 0);
-      const boxHeight = Math.max(boundaryBounds.height - paddingY * 2, 0);
+      // 限制在边界框内部的白色区域内
+      const boundaryX = Math.round(boundaryBounds.x);
+      const boundaryY = Math.round(boundaryBounds.y);
+      const boundaryWidth = Math.round(boundaryBounds.width);
+      const boundaryHeight = Math.round(boundaryBounds.height);
+
+      // 在边界框内部查找白色区域，用于放置图形
+      const minShapeSize = 20; // 最小图形尺寸（像素）
+      let foundWhiteArea = false;
+      let whiteAreaX = boundaryX + paddingX;
+      let whiteAreaY = boundaryY + paddingY;
+      let whiteAreaWidth = Math.max(boundaryWidth - paddingX * 2, minShapeSize);
+      let whiteAreaHeight = Math.max(boundaryHeight - paddingY * 2, minShapeSize);
+
+      // 扫描边界框内部，找到白色区域
+      const scanStep = 10; // 扫描步长
+      for (let y = boundaryY; y < boundaryY + boundaryHeight - minShapeSize && !foundWhiteArea; y += scanStep) {
+        for (let x = boundaryX; x < boundaryX + boundaryWidth - minShapeSize; x += scanStep) {
+          // 检查该区域是否为白色
+          let isWhite = true;
+          const checkSize = minShapeSize;
+          for (let yy = y; yy < y + checkSize && yy < boundaryY + boundaryHeight; yy++) {
+            for (let xx = x; xx < x + checkSize && xx < boundaryX + boundaryWidth; xx++) {
+              const idx = yy * svgResult.viewWidth + xx;
+              if (idx >= 0 && idx < svgResult.mask.length && svgResult.mask[idx] <= 200) {
+                isWhite = false;
+                break;
+              }
+            }
+            if (!isWhite) break;
+          }
+          
+          if (isWhite) {
+            // 找到白色区域，计算可用的最大尺寸
+            let maxW = boundaryX + boundaryWidth - x - paddingX;
+            let maxH = boundaryY + boundaryHeight - y - paddingY;
+            
+            // 向右扩展查找最大宽度
+            for (let xx = x + checkSize; xx < boundaryX + boundaryWidth; xx++) {
+              let colIsWhite = true;
+              for (let yy = y; yy < y + checkSize && yy < boundaryY + boundaryHeight; yy++) {
+                const idx = yy * svgResult.viewWidth + xx;
+                if (idx >= 0 && idx < svgResult.mask.length && svgResult.mask[idx] <= 200) {
+                  colIsWhite = false;
+                  break;
+                }
+              }
+              if (!colIsWhite) break;
+              maxW = xx - x + 1 - paddingX;
+            }
+            
+            // 向下扩展查找最大高度
+            for (let yy = y + checkSize; yy < boundaryY + boundaryHeight; yy++) {
+              let rowIsWhite = true;
+              for (let xx = x; xx < x + Math.min(checkSize, maxW) && xx < boundaryX + boundaryWidth; xx++) {
+                const idx = yy * svgResult.viewWidth + xx;
+                if (idx >= 0 && idx < svgResult.mask.length && svgResult.mask[idx] <= 200) {
+                  rowIsWhite = false;
+                  break;
+                }
+              }
+              if (!rowIsWhite) break;
+              maxH = yy - y + 1 - paddingY;
+            }
+            
+            whiteAreaX = x + paddingX;
+            whiteAreaY = y + paddingY;
+            whiteAreaWidth = Math.max(maxW, minShapeSize);
+            whiteAreaHeight = Math.max(maxH, minShapeSize);
+            foundWhiteArea = true;
+            break;
+          }
+        }
+      }
+
+      // 如果没找到白色区域，使用边界框内部区域（带padding）
+      if (!foundWhiteArea) {
+        whiteAreaX = boundaryX + paddingX;
+        whiteAreaY = boundaryY + paddingY;
+        whiteAreaWidth = Math.max(boundaryWidth - paddingX * 2, minShapeSize);
+        whiteAreaHeight = Math.max(boundaryHeight - paddingY * 2, minShapeSize);
+      }
+
+      const boxX = whiteAreaX;
+      const boxY = whiteAreaY;
+      const boxWidth = whiteAreaWidth;
+      const boxHeight = whiteAreaHeight;
 
       if (shape === 'roundedRect') {
         const width = Math.max(boxWidth, 0);
@@ -191,6 +369,11 @@ export const useShapeTools = ({
         suggestions: 0,
         lastSuggestion: null,
       });
+      
+      // 在异步操作开始前获取最新的shapeState值，确保使用最新的间距设置
+      // 使用ref来获取最新的状态值，避免闭包问题
+      const actualShapeState = shapeStateRef.current;
+      
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       // 获取边界框范围
@@ -199,7 +382,7 @@ export const useShapeTools = ({
         throw new Error('无法获取边界框范围');
       }
 
-      // 创建限制在边界框内部的mask
+      // 创建限制在边界框内部的mask，并应用padding（留白）
       const pxPerMmX = svgResult.viewWidth / svgResult.widthMm;
       const pxPerMmY = svgResult.viewHeight / svgResult.heightMm;
       const boundaryX = Math.round(boundaryBounds.x);
@@ -207,19 +390,33 @@ export const useShapeTools = ({
       const boundaryWidth = Math.round(boundaryBounds.width);
       const boundaryHeight = Math.round(boundaryBounds.height);
 
+      // 计算padding对应的像素值（使用最新的状态值）
+      const paddingMm = Math.max(0, actualShapeState.padding);
+      const paddingX = Math.round(paddingMm * pxPerMmX);
+      const paddingY = Math.round(paddingMm * pxPerMmY);
+
+      // 计算应用padding后的有效区域
+      const innerX = boundaryX + paddingX;
+      const innerY = boundaryY + paddingY;
+      const innerWidth = Math.max(0, boundaryWidth - paddingX * 2);
+      const innerHeight = Math.max(0, boundaryHeight - paddingY * 2);
+
       const restrictedMask = new Uint8Array(svgResult.viewWidth * svgResult.viewHeight);
       for (let y = 0; y < svgResult.viewHeight; y++) {
         for (let x = 0; x < svgResult.viewWidth; x++) {
           const idx = y * svgResult.viewWidth + x;
-          if (x >= boundaryX && x < boundaryX + boundaryWidth &&
-              y >= boundaryY && y < boundaryY + boundaryHeight) {
+          // 只有在边界框内部且在padding区域之外的区域才保留原始mask值
+          if (x >= innerX && x < innerX + innerWidth &&
+              y >= innerY && y < innerY + innerHeight) {
             restrictedMask[idx] = svgResult.mask[idx];
           } else {
+            // 边界框外或padding区域内设为0（黑色，不可用）
             restrictedMask[idx] = 0;
           }
         }
       }
 
+      // 使用最新的状态值（确保间距等参数是最新的）
       const suggestions = await suggestRectanglesFromMask(
         restrictedMask,
         svgResult.viewWidth,
@@ -227,12 +424,12 @@ export const useShapeTools = ({
         svgResult.widthMm,
         svgResult.heightMm,
         {
-          maxWidthMm: 100,
-          maxHeightMm: 50,
+          maxWidthMm: Math.max(1, actualShapeState.maxRectWidth),
+          maxHeightMm: Math.max(1, actualShapeState.maxRectHeight),
           minWidthMm: 30,
           minHeightMm: 20,
-          stepMm: Math.max(1.0, shapeState.step),
-          gapMm: shapeState.gap,
+          stepMm: Math.max(1.0, actualShapeState.step),
+          gapMm: actualShapeState.gap, // 使用最新的间距值
           coverageThreshold: 0.9,
           orientation: 'both',
           maxShapes: 500,
@@ -242,6 +439,7 @@ export const useShapeTools = ({
             setAutoFillProgress(progress);
           },
           shouldAbort: () => autoFillAbortRef.current,
+          originalMask: svgResult.mask, // 传递原始mask用于区分黑色边界
         }
       );
 
@@ -266,34 +464,149 @@ export const useShapeTools = ({
       existing.forEach((node) => node.parentNode?.removeChild(node));
 
       const ns = 'http://www.w3.org/2000/svg';
-      const cornerRadiusPx = Math.max(0, shapeState.cornerRadius) * Math.min(pxPerMmX, pxPerMmY);
-      const strokeWidthPx = Math.max(0.1, shapeState.strokeWidth * Math.min(pxPerMmX, pxPerMmY));
+      const cornerRadiusPx = Math.max(0, actualShapeState.cornerRadius) * Math.min(pxPerMmX, pxPerMmY);
+      const strokeWidthPx = Math.max(0.1, actualShapeState.strokeWidth * Math.min(pxPerMmX, pxPerMmY));
 
-      suggestions.forEach((rect) => {
-        const el = doc.createElementNS(ns, 'rect');
-        const xPx = rect.xMm * pxPerMmX;
-        const yPx = rect.yMm * pxPerMmY;
-        const wPx = rect.widthMm * pxPerMmX;
-        const hPx = rect.heightMm * pxPerMmY;
+      // 如果间距为0，使用path合并相邻矩形，去重重合的边（使用最新的状态值）
+      if (actualShapeState.gap === 0 && cornerRadiusPx === 0) {
+        // 将所有矩形转换为路径，合并相邻的矩形
+        const tolerance = 0.5; // 允许的误差（像素）
+        
+        // 先添加所有矩形作为单独的路径，然后检测并合并相邻的
+        const rects: Array<{ x: number; y: number; w: number; h: number }> = suggestions.map((rect) => ({
+          x: rect.xMm * pxPerMmX,
+          y: rect.yMm * pxPerMmY,
+          w: rect.widthMm * pxPerMmX,
+          h: rect.heightMm * pxPerMmY,
+        }));
 
-        el.setAttribute('x', `${xPx}`);
-        el.setAttribute('y', `${yPx}`);
-        el.setAttribute('width', `${wPx}`);
-        el.setAttribute('height', `${hPx}`);
-        const maxRadiusPx = Math.min(wPx, hPx) / 2;
-        const radiusPx = Math.min(cornerRadiusPx, maxRadiusPx);
-        if (radiusPx > 0) {
-          el.setAttribute('rx', `${radiusPx}`);
-          el.setAttribute('ry', `${radiusPx}`);
+        // 创建一个函数来生成矩形的路径（只绘制外轮廓）
+        const rectToPath = (r: { x: number; y: number; w: number; h: number }): string => {
+          return `M ${r.x} ${r.y} L ${r.x + r.w} ${r.y} L ${r.x + r.w} ${r.y + r.h} L ${r.x} ${r.y + r.h} Z`;
+        };
+
+        // 检测相邻矩形并合并它们的路径
+        const mergedPaths: string[] = [];
+        const processed = new Set<number>();
+        
+        for (let i = 0; i < rects.length; i++) {
+          if (processed.has(i)) continue;
+          
+          const currentRects = [rects[i]];
+          processed.add(i);
+          
+          // 查找所有与当前矩形相邻的矩形
+          let foundAdjacent = true;
+          while (foundAdjacent) {
+            foundAdjacent = false;
+            for (let j = 0; j < rects.length; j++) {
+              if (processed.has(j)) continue;
+              
+              const r2 = rects[j];
+              // 检查是否与当前组中的任何矩形相邻
+              for (const r1 of currentRects) {
+                // 检查r1的右边缘是否与r2的左边缘重合
+                if (Math.abs((r1.x + r1.w) - r2.x) < tolerance) {
+                  const overlapTop = Math.max(r1.y, r2.y);
+                  const overlapBottom = Math.min(r1.y + r1.h, r2.y + r2.h);
+                  if (overlapBottom > overlapTop + tolerance) {
+                    currentRects.push(r2);
+                    processed.add(j);
+                    foundAdjacent = true;
+                    break;
+                  }
+                }
+                // 检查r1的左边缘是否与r2的右边缘重合
+                if (Math.abs(r1.x - (r2.x + r2.w)) < tolerance) {
+                  const overlapTop = Math.max(r1.y, r2.y);
+                  const overlapBottom = Math.min(r1.y + r1.h, r2.y + r2.h);
+                  if (overlapBottom > overlapTop + tolerance) {
+                    currentRects.push(r2);
+                    processed.add(j);
+                    foundAdjacent = true;
+                    break;
+                  }
+                }
+                // 检查r1的下边缘是否与r2的上边缘重合
+                if (Math.abs((r1.y + r1.h) - r2.y) < tolerance) {
+                  const overlapLeft = Math.max(r1.x, r2.x);
+                  const overlapRight = Math.min(r1.x + r1.w, r2.x + r2.w);
+                  if (overlapRight > overlapLeft + tolerance) {
+                    currentRects.push(r2);
+                    processed.add(j);
+                    foundAdjacent = true;
+                    break;
+                  }
+                }
+                // 检查r1的上边缘是否与r2的下边缘重合
+                if (Math.abs(r1.y - (r2.y + r2.h)) < tolerance) {
+                  const overlapLeft = Math.max(r1.x, r2.x);
+                  const overlapRight = Math.min(r1.x + r1.w, r2.x + r2.w);
+                  if (overlapRight > overlapLeft + tolerance) {
+                    currentRects.push(r2);
+                    processed.add(j);
+                    foundAdjacent = true;
+                    break;
+                  }
+                }
+              }
+              if (foundAdjacent) break;
+            }
+          }
+          
+          // 为当前组的矩形生成合并的路径，去除重合边
+          if (currentRects.length === 1) {
+            // 单个矩形，直接用path绘制
+            mergedPaths.push(rectToPath(currentRects[0]));
+          } else {
+            // 多个相邻矩形：计算合并后的外轮廓，去除内部重合边
+            const mergedPath = mergeRectangleOutlines(currentRects);
+            mergedPaths.push(mergedPath);
+          }
         }
-        el.setAttribute('fill', 'none');
-        el.setAttribute('stroke', shapeState.strokeColor);
-        el.setAttribute('stroke-width', `${strokeWidthPx}`);
-        el.setAttribute('vector-effect', 'non-scaling-stroke');
-        el.setAttribute('data-auto-fill', 'true');
-        el.setAttribute('data-extra-shape', 'auto');
-        root.appendChild(el);
-      });
+        
+        // 创建path元素
+        mergedPaths.forEach((pathData) => {
+          const pathEl = doc.createElementNS(ns, 'path');
+          pathEl.setAttribute('d', pathData);
+          pathEl.setAttribute('fill', 'none');
+          pathEl.setAttribute('stroke', actualShapeState.strokeColor);
+          pathEl.setAttribute('stroke-width', `${strokeWidthPx}`);
+          pathEl.setAttribute('stroke-linejoin', 'miter'); // 让相邻边合并
+          pathEl.setAttribute('stroke-miterlimit', '10');
+          pathEl.setAttribute('vector-effect', 'non-scaling-stroke');
+          pathEl.setAttribute('data-auto-fill', 'true');
+          pathEl.setAttribute('data-extra-shape', 'auto');
+          root.appendChild(pathEl);
+        });
+      } else {
+        // 间距不为0，正常添加所有矩形
+        suggestions.forEach((rect) => {
+          const el = doc.createElementNS(ns, 'rect');
+          const xPx = rect.xMm * pxPerMmX;
+          const yPx = rect.yMm * pxPerMmY;
+          const wPx = rect.widthMm * pxPerMmX;
+          const hPx = rect.heightMm * pxPerMmY;
+
+          el.setAttribute('x', `${xPx}`);
+          el.setAttribute('y', `${yPx}`);
+          el.setAttribute('width', `${wPx}`);
+          el.setAttribute('height', `${hPx}`);
+          const maxRadiusPx = Math.min(wPx, hPx) / 2;
+          const radiusPx = Math.min(cornerRadiusPx, maxRadiusPx);
+          if (radiusPx > 0) {
+            el.setAttribute('rx', `${radiusPx}`);
+            el.setAttribute('ry', `${radiusPx}`);
+          }
+          el.setAttribute('fill', 'none');
+          el.setAttribute('stroke', actualShapeState.strokeColor);
+          el.setAttribute('stroke-width', `${strokeWidthPx}`);
+          el.setAttribute('vector-effect', 'non-scaling-stroke');
+          el.setAttribute('data-auto-fill', 'true');
+          el.setAttribute('data-extra-shape', 'auto');
+          root.appendChild(el);
+        });
+      }
 
       const serialized = new XMLSerializer().serializeToString(doc);
       onSvgUpdate(serialized);

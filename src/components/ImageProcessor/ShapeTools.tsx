@@ -15,6 +15,8 @@ interface ShapeState {
   strokeColor: string;
   gap: number;
   step: number;
+  maxRectWidth: number;
+  maxRectHeight: number;
 }
 
 interface ShapeToolsProps {
@@ -73,19 +75,6 @@ const ShapeTools: React.FC<ShapeToolsProps> = ({
               onChange={(e) => {
                 const value = Number(e.target.value);
                 onShapeStateChange({ cornerRadius: Number.isFinite(value) ? Math.max(0, value) : 0 });
-              }}
-            />
-          </label>
-          <label>
-            {t('imageProcessor.shapeTools.manual.strokeWidth')}
-            <input
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={shapeState.strokeWidth}
-              onChange={(e) => {
-                const value = Number(e.target.value);
-                onShapeStateChange({ strokeWidth: Number.isFinite(value) ? Math.max(0.1, value) : 0.1 });
               }}
             />
           </label>
@@ -148,25 +137,38 @@ const ShapeTools: React.FC<ShapeToolsProps> = ({
               }}
             />
           </label>
-          <label>
-            {t('imageProcessor.shapeTools.manual.strokeWidth')}
-            <input
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={shapeState.strokeWidth}
-              onChange={(e) => {
-                const value = Number(e.target.value);
-                onShapeStateChange({ strokeWidth: Number.isFinite(value) ? Math.max(0.1, value) : 0.1 });
-              }}
-            />
-          </label>
           <label className="color-picker">
             {t('imageProcessor.shapeTools.manual.color')}
             <input
               type="color"
               value={shapeState.strokeColor}
               onChange={(e) => onShapeStateChange({ strokeColor: e.target.value })}
+            />
+          </label>
+          <label>
+            {t('imageProcessor.shapeTools.autoFill.maxRectWidth')}
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={shapeState.maxRectWidth}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                onShapeStateChange({ maxRectWidth: Number.isFinite(value) ? Math.max(1, value) : 200 });
+              }}
+            />
+          </label>
+          <label>
+            {t('imageProcessor.shapeTools.autoFill.maxRectHeight')}
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={shapeState.maxRectHeight}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                onShapeStateChange({ maxRectHeight: Number.isFinite(value) ? Math.max(1, value) : 200 });
+              }}
             />
           </label>
           <label>

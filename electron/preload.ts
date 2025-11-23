@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     materialSvg: string;
     partsSvg: string[];
     outputPath: string;
+    rotationMode?: 'none' | '90' | 'all';
+    spacing?: number;
+    quality?: 'fast' | 'balanced' | 'best';
   }) => ipcRenderer.invoke('run-deepnest', config),
 });
 
@@ -21,7 +24,17 @@ declare global {
         materialSvg: string;
         partsSvg: string[];
         outputPath: string;
-      }) => Promise<{ success: boolean; outputPath?: string; message?: string }>;
+        rotationMode?: 'none' | '90' | 'all';
+        spacing?: number;
+        quality?: 'fast' | 'balanced' | 'best';
+      }) => Promise<{ 
+        success: boolean; 
+        outputPath?: string; 
+        resultSvg?: string;
+        efficiency?: number;
+        partsPlaced?: number;
+        message?: string; 
+      }>;
     };
   }
 }

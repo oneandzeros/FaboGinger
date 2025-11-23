@@ -12,7 +12,9 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  base: './', // 使用相对路径，确保在 Electron 中正确加载资源
   build: {
     outDir: 'dist-react',
+    assetsDir: 'assets',
   },
 });

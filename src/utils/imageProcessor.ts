@@ -49,6 +49,7 @@ export interface RectanglePackingOptions {
   yieldAfterRows?: number;
   onProgress?: (progress: RectanglePackingProgress) => void | Promise<void>;
   shouldAbort?: () => boolean;
+  originalMask?: Uint8Array; // 原始mask，用于区分黑色边界和已放置矩形
 }
 
 export interface RectanglePackingProgress {
@@ -523,6 +524,14 @@ export async function suggestRectanglesFromMask(
   const gapPxY = Math.round(gapMm * pxPerMmY);
   const stepPxX = Math.max(1, Math.round(stepMm * pxPerMmX));
   const stepPxY = Math.max(1, Math.round(stepMm * pxPerMmY));
+  
+  // 1mm间距对应的像素
+  const boundaryGapMm = 1;
+  const boundaryGapPxX = Math.round(boundaryGapMm * pxPerMmX);
+  const boundaryGapPxY = Math.round(boundaryGapMm * pxPerMmY);
+  
+  // 原始mask用于区分黑色边界和已放置矩形
+  const originalMask = options.originalMask || mask;
 
   const suggestions: RectangleSuggestion[] = [];
   const totalRows = Math.max(1, Math.ceil(maskHeight / stepPxY));
@@ -550,19 +559,126 @@ export async function suggestRectanglesFromMask(
 
   await reportProgress(true);
 
+  // 检查矩形区域是否可用，考虑不同的间距规则
   const isAreaUnused = (x: number, y: number, w: number, h: number): boolean => {
-    const startX = Math.max(0, x - gapPxX);
-    const startY = Math.max(0, y - gapPxY);
-    const endX = Math.min(maskWidth, x + w + gapPxX);
-    const endY = Math.min(maskHeight, y + h + gapPxY);
-    for (let yy = startY; yy < endY; yy++) {
+    // 首先检查矩形内部区域是否可用
+    for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
       const rowOffset = yy * maskWidth;
-      for (let xx = startX; xx < endX; xx++) {
+      for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
         if (!available[rowOffset + xx]) {
           return false;
         }
       }
     }
+
+    // 检查矩形周围的间距区域
+    // 左边界：检查矩形左侧是否有黑色边界或已放置矩形
+    if (x > 0) {
+      // 检查矩形左边缘的原始mask，判断是否有黑色边界
+      let hasBlackBoundary = false;
+      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+        const idx = yy * maskWidth + Math.max(0, x - 1);
+        if (originalMask[idx] <= 200) {
+          hasBlackBoundary = true;
+          break;
+        }
+      }
+      const gapToUse = hasBlackBoundary ? boundaryGapPxX : gapPxX;
+      const startX = Math.max(0, x - gapToUse);
+      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+        const rowOffset = yy * maskWidth;
+        for (let xx = startX; xx < x; xx++) {
+          if (!available[rowOffset + xx]) {
+            // 检查是否是黑色边界还是已放置矩形
+            const isBlack = originalMask[rowOffset + xx] <= 200;
+            if (!isBlack) {
+              // 是已放置矩形，必须满足gap间距
+              if (gapToUse < gapPxX) {
+                return false;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 右边界：检查矩形右侧是否有黑色边界或已放置矩形
+    if (x + w < maskWidth) {
+      const rightEdge = x + w;
+      let hasBlackBoundary = false;
+      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+        const idx = yy * maskWidth + Math.min(maskWidth - 1, rightEdge);
+        if (originalMask[idx] <= 200) {
+          hasBlackBoundary = true;
+          break;
+        }
+      }
+      const gapToUse = hasBlackBoundary ? boundaryGapPxX : gapPxX;
+      const endX = Math.min(maskWidth, rightEdge + gapToUse);
+      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+        const rowOffset = yy * maskWidth;
+        for (let xx = rightEdge; xx < endX; xx++) {
+          if (!available[rowOffset + xx]) {
+            const isBlack = originalMask[rowOffset + xx] <= 200;
+            if (!isBlack && gapToUse < gapPxX) {
+              return false;
+            }
+          }
+        }
+      }
+    }
+
+    // 上边界：检查矩形上侧是否有黑色边界或已放置矩形
+    if (y > 0) {
+      let hasBlackBoundary = false;
+      for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+        const idx = Math.max(0, y - 1) * maskWidth + xx;
+        if (originalMask[idx] <= 200) {
+          hasBlackBoundary = true;
+          break;
+        }
+      }
+      const gapToUse = hasBlackBoundary ? boundaryGapPxY : gapPxY;
+      const startY = Math.max(0, y - gapToUse);
+      for (let yy = startY; yy < y; yy++) {
+        const rowOffset = yy * maskWidth;
+        for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+          if (!available[rowOffset + xx]) {
+            const isBlack = originalMask[rowOffset + xx] <= 200;
+            if (!isBlack && gapToUse < gapPxY) {
+              return false;
+            }
+          }
+        }
+      }
+    }
+
+    // 下边界：检查矩形下侧是否有黑色边界或已放置矩形
+    if (y + h < maskHeight) {
+      const bottomEdge = y + h;
+      let hasBlackBoundary = false;
+      for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+        const idx = Math.min(maskHeight - 1, bottomEdge) * maskWidth + xx;
+        if (originalMask[idx] <= 200) {
+          hasBlackBoundary = true;
+          break;
+        }
+      }
+      const gapToUse = hasBlackBoundary ? boundaryGapPxY : gapPxY;
+      const endY = Math.min(maskHeight, bottomEdge + gapToUse);
+      for (let yy = bottomEdge; yy < endY; yy++) {
+        const rowOffset = yy * maskWidth;
+        for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+          if (!available[rowOffset + xx]) {
+            const isBlack = originalMask[rowOffset + xx] <= 200;
+            if (!isBlack && gapToUse < gapPxY) {
+              return false;
+            }
+          }
+        }
+      }
+    }
+
     return true;
   };
 
@@ -581,15 +697,77 @@ export async function suggestRectanglesFromMask(
     return total === 0 ? 0 : white / total;
   };
 
+  // 标记已使用的区域，根据周围是黑色边界还是已放置矩形使用不同的间距
   const markUsed = (x: number, y: number, w: number, h: number) => {
-    const startX = Math.max(0, x - gapPxX);
-    const startY = Math.max(0, y - gapPxY);
-    const endX = Math.min(maskWidth, x + w + gapPxX);
-    const endY = Math.min(maskHeight, y + h + gapPxY);
-    for (let yy = startY; yy < endY; yy++) {
+    // 标记矩形内部
+    for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
       const rowOffset = yy * maskWidth;
-      for (let xx = startX; xx < endX; xx++) {
+      for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
         available[rowOffset + xx] = 0;
+      }
+    }
+
+    // 标记周围的间距区域
+    // 左边界
+    if (x > 0) {
+      const isBlackBoundary = x > 0 && (originalMask[y * maskWidth + Math.max(0, x - 1)] <= 200);
+      const gapToUse = isBlackBoundary ? boundaryGapPxX : gapPxX;
+      const startX = Math.max(0, x - gapToUse);
+      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+        const rowOffset = yy * maskWidth;
+        for (let xx = startX; xx < x; xx++) {
+          // 只有白色区域才能标记（已放置矩形的区域已经标记过了）
+          if (originalMask[rowOffset + xx] > 200) {
+            available[rowOffset + xx] = 0;
+          }
+        }
+      }
+    }
+
+    // 右边界
+    if (x + w < maskWidth) {
+      const rightEdge = x + w;
+      const isBlackBoundary = rightEdge < maskWidth && (originalMask[y * maskWidth + Math.min(maskWidth - 1, rightEdge)] <= 200);
+      const gapToUse = isBlackBoundary ? boundaryGapPxX : gapPxX;
+      const endX = Math.min(maskWidth, rightEdge + gapToUse);
+      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+        const rowOffset = yy * maskWidth;
+        for (let xx = rightEdge; xx < endX; xx++) {
+          if (originalMask[rowOffset + xx] > 200) {
+            available[rowOffset + xx] = 0;
+          }
+        }
+      }
+    }
+
+    // 上边界
+    if (y > 0) {
+      const isBlackBoundary = y > 0 && (originalMask[Math.max(0, y - 1) * maskWidth + x] <= 200);
+      const gapToUse = isBlackBoundary ? boundaryGapPxY : gapPxY;
+      const startY = Math.max(0, y - gapToUse);
+      for (let yy = startY; yy < y; yy++) {
+        const rowOffset = yy * maskWidth;
+        for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+          if (originalMask[rowOffset + xx] > 200) {
+            available[rowOffset + xx] = 0;
+          }
+        }
+      }
+    }
+
+    // 下边界
+    if (y + h < maskHeight) {
+      const bottomEdge = y + h;
+      const isBlackBoundary = bottomEdge < maskHeight && (originalMask[Math.min(maskHeight - 1, bottomEdge) * maskWidth + x] <= 200);
+      const gapToUse = isBlackBoundary ? boundaryGapPxY : gapPxY;
+      const endY = Math.min(maskHeight, bottomEdge + gapToUse);
+      for (let yy = bottomEdge; yy < endY; yy++) {
+        const rowOffset = yy * maskWidth;
+        for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+          if (originalMask[rowOffset + xx] > 200) {
+            available[rowOffset + xx] = 0;
+          }
+        }
       }
     }
   };
