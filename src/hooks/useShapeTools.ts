@@ -152,11 +152,18 @@ export const useShapeTools = ({
   const autoFillAbortRef = useRef<boolean>(false);
   // 使用ref保存最新的shapeState，确保异步函数能访问到最新值
   const shapeStateRef = useRef<ShapeState>(shapeState);
+  // 使用ref保存最新的svgResult，确保多次自动填充时使用最新状态
+  const svgResultRef = useRef<SvgProcessResult | null>(svgResult);
   
   // 当shapeState更新时，同步更新ref
   useEffect(() => {
     shapeStateRef.current = shapeState;
   }, [shapeState]);
+  
+  // 当svgResult更新时，同步更新ref
+  useEffect(() => {
+    svgResultRef.current = svgResult;
+  }, [svgResult]);
 
   const setShapeMessage = (message: string | null, tone: ShapeMessageTone = 'info') => {
     setShapeMessageState(message);
@@ -374,15 +381,21 @@ export const useShapeTools = ({
       
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      // 获取边界框范围
-      const boundaryBounds = getBoundaryBoxBounds(svgResult.svg);
+      // 使用 ref 获取最新的 svgResult，确保多次自动填充时使用最新状态
+      const currentSvgResult = svgResultRef.current;
+      if (!currentSvgResult) {
+        throw new Error('SVG 结果不可用');
+      }
+
+      // 获取边界框范围（使用最新的 SVG）
+      const boundaryBounds = getBoundaryBoxBounds(currentSvgResult.svg);
       if (!boundaryBounds) {
         throw new Error('无法获取边界框范围');
       }
 
       // 创建限制在边界框内部的mask，并应用padding（留白）
-      const pxPerMmX = svgResult.viewWidth / svgResult.widthMm;
-      const pxPerMmY = svgResult.viewHeight / svgResult.heightMm;
+      const pxPerMmX = currentSvgResult.viewWidth / currentSvgResult.widthMm;
+      const pxPerMmY = currentSvgResult.viewHeight / currentSvgResult.heightMm;
       const boundaryX = Math.round(boundaryBounds.x);
       const boundaryY = Math.round(boundaryBounds.y);
       const boundaryWidth = Math.round(boundaryBounds.width);
@@ -407,7 +420,7 @@ export const useShapeTools = ({
 
       // 先解析SVG文档，提取已存在的自动填充矩形（用于在 mask 中标记为已占用）
       const parser = new DOMParser();
-      const doc = parser.parseFromString(svgResult.svg, 'image/svg+xml');
+      const doc = parser.parseFromString(currentSvgResult.svg, 'image/svg+xml');
       const root = doc.documentElement as SVGSVGElement | null;
       if (!root || root.tagName.toLowerCase() !== 'svg') {
         throw new Error('未找到 SVG 根节点');
@@ -450,18 +463,18 @@ export const useShapeTools = ({
 
       // 创建限制在边界框内部的mask，并应用padding（留白）
       // 同时将已存在的矩形区域标记为已占用
-      const restrictedMask = new Uint8Array(svgResult.viewWidth * svgResult.viewHeight);
-      for (let y = 0; y < svgResult.viewHeight; y++) {
+      const restrictedMask = new Uint8Array(currentSvgResult.viewWidth * currentSvgResult.viewHeight);
+      for (let y = 0; y < currentSvgResult.viewHeight; y++) {
         // 每处理10行检查一次abort，避免长时间阻塞
         if (y % 10 === 0 && autoFillAbortRef.current) {
           throw new Error('USER_CANCELLED');
         }
-        for (let x = 0; x < svgResult.viewWidth; x++) {
-          const idx = y * svgResult.viewWidth + x;
+        for (let x = 0; x < currentSvgResult.viewWidth; x++) {
+          const idx = y * currentSvgResult.viewWidth + x;
           // 只有在边界框内部且在padding区域之外的区域才保留原始mask值
           if (x >= innerX && x < innerX + innerWidth &&
               y >= innerY && y < innerY + innerHeight) {
-            restrictedMask[idx] = svgResult.mask[idx];
+            restrictedMask[idx] = currentSvgResult.mask[idx];
             
             // 检查是否在已存在的矩形区域内，如果是则标记为已占用（设为0/黑色）
             const isInExistingRect = existingRects.some(rect => {
@@ -521,10 +534,10 @@ export const useShapeTools = ({
       // 使用最新的状态值（确保间距等参数是最新的）
       const suggestions = await suggestRectanglesFromMask(
         restrictedMask,
-        svgResult.viewWidth,
-        svgResult.viewHeight,
-        svgResult.widthMm,
-        svgResult.heightMm,
+        currentSvgResult.viewWidth,
+        currentSvgResult.viewHeight,
+        currentSvgResult.widthMm,
+        currentSvgResult.heightMm,
         {
           // 最大宽高使用边界框的有效尺寸（不设限）
           maxWidthMm: Math.max(1, effectiveWidthMm),
@@ -555,7 +568,7 @@ export const useShapeTools = ({
             await new Promise((resolve) => setTimeout(resolve, 0));
           },
           shouldAbort: () => autoFillAbortRef.current,
-          originalMask: svgResult.mask, // 传递原始mask用于区分黑色边界
+          originalMask: currentSvgResult.mask, // 传递原始mask用于区分黑色边界
           effectiveHeightMm: effectiveHeightMm, // 传递有效扫描区域高度，用于正确计算总行数
         }
       );
@@ -742,13 +755,24 @@ export const useShapeTools = ({
         throw new Error('未找到 SVG 根节点');
       }
 
-      // 只清除非边界框的图形
+      // 只清除非边界框的图形（包括手动添加和自动填充的图形）
       const extraShapes = root.querySelectorAll('[data-extra-shape]:not([data-boundary-box="true"])');
-      extraShapes.forEach((node) => node.parentNode?.removeChild(node));
+      const removedCount = extraShapes.length;
+      extraShapes.forEach((node) => {
+        if (node.parentNode) {
+          node.parentNode.removeChild(node);
+        }
+      });
 
+      // 确保清理完成后再更新
       const serialized = new XMLSerializer().serializeToString(doc);
       onSvgUpdate(serialized);
-      setShapeMessage(t('imageProcessor.shapeTools.messages.shapesCleared'), 'info');
+      
+      if (removedCount > 0) {
+        setShapeMessage(t('imageProcessor.shapeTools.messages.shapesCleared'), 'info');
+      } else {
+        setShapeMessage(t('imageProcessor.shapeTools.messages.noShapesToClear', { defaultValue: '没有需要清理的图形' }), 'info');
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setShapeMessage(t('imageProcessor.shapeTools.messages.clearShapesFailed', { message }), 'error');
