@@ -48,8 +48,10 @@ export interface RectanglePackingOptions {
   progressIntervalRows?: number;
   yieldAfterRows?: number;
   onProgress?: (progress: RectanglePackingProgress) => void | Promise<void>;
+  onRectangleAdded?: (suggestion: RectangleSuggestion) => void | Promise<void>; // 每当添加一个新矩形时调用
   shouldAbort?: () => boolean;
   originalMask?: Uint8Array; // 原始mask，用于区分黑色边界和已放置矩形
+  effectiveHeightMm?: number; // 有效扫描区域高度（毫米），用于正确计算总行数
 }
 
 export interface RectanglePackingProgress {
@@ -479,7 +481,12 @@ export async function suggestRectanglesFromMask(
   const progressIntervalRows = Math.max(1, Math.round(options.progressIntervalRows ?? 5));
   const yieldAfterRows = Math.max(0, Math.round(options.yieldAfterRows ?? 20));
   const onProgress = options.onProgress;
+  const onRectangleAdded = options.onRectangleAdded;
   const shouldAbort = options.shouldAbort;
+
+  // 预先计算最小尺寸的像素值（性能优化：避免在循环中重复计算）
+  const minWidthPx = Math.max(1, Math.round(minWidthMm * pxPerMmX));
+  const minHeightPx = Math.max(1, Math.round(minHeightMm * pxPerMmY));
 
   const widthCandidates = buildDescendingRange(maxWidthMm, minWidthMm, stepMm);
   const heightCandidates = buildDescendingRange(maxHeightMm, minHeightMm, stepMm);
@@ -534,8 +541,22 @@ export async function suggestRectanglesFromMask(
   const originalMask = options.originalMask || mask;
 
   const suggestions: RectangleSuggestion[] = [];
-  const totalRows = Math.max(1, Math.ceil(maskHeight / stepPxY));
+  
+  // 计算实际扫描区域的高度：如果有effectiveHeightMm，使用它来计算；否则使用整个maskHeight
+  // effectiveHeightMm 是边界框减去padding后的有效高度（毫米）
+  const effectiveHeightMm = options.effectiveHeightMm;
+  let totalRows: number;
+  if (effectiveHeightMm && effectiveHeightMm > 0) {
+    // 如果有指定有效高度，基于有效高度计算总行数
+    const pxPerMmY = maskHeight / heightMm;
+    const effectiveHeightPx = effectiveHeightMm * pxPerMmY;
+    totalRows = Math.max(1, Math.ceil(effectiveHeightPx / stepPxY));
+  } else {
+    // 否则使用整个maskHeight
+    totalRows = Math.max(1, Math.ceil(maskHeight / stepPxY));
+  }
   let processedRows = 0;
+  let firstPhaseTotalRows = totalRows; // 记录第一阶段的totalRows
 
   const reportProgress = async (force = false) => {
     if (!onProgress) return;
@@ -559,7 +580,26 @@ export async function suggestRectanglesFromMask(
 
   await reportProgress(true);
 
-  // 检查矩形区域是否可用，考虑不同的间距规则
+  // 预计算每行的黑色边界列（性能优化：避免重复扫描）
+  // blackBoundaryCols[y] 是一个 Set，包含第 y 行所有有黑色边界的列索引
+  const blackBoundaryCols = new Map<number, Set<number>>();
+  const precomputeBlackBoundaries = () => {
+    for (let yy = 0; yy < maskHeight; yy++) {
+      const cols = new Set<number>();
+      for (let xx = 0; xx < maskWidth; xx++) {
+        const idx = yy * maskWidth + xx;
+        if (originalMask[idx] <= 200) {
+          cols.add(xx);
+        }
+      }
+      if (cols.size > 0) {
+        blackBoundaryCols.set(yy, cols);
+      }
+    }
+  };
+  precomputeBlackBoundaries();
+
+  // 检查矩形区域是否可用，考虑不同的间距规则（优化版）
   const isAreaUnused = (x: number, y: number, w: number, h: number): boolean => {
     // 首先检查矩形内部区域是否可用
     for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
@@ -574,26 +614,33 @@ export async function suggestRectanglesFromMask(
     // 检查矩形周围的间距区域
     // 左边界：检查矩形左侧是否有黑色边界或已放置矩形
     if (x > 0) {
-      // 检查矩形左边缘的原始mask，判断是否有黑色边界
+      // 使用预计算的边界信息快速检查左边缘是否有黑色边界
       let hasBlackBoundary = false;
+      const checkX = Math.max(0, x - 1);
       for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
-        const idx = yy * maskWidth + Math.max(0, x - 1);
-        if (originalMask[idx] <= 200) {
+        const cols = blackBoundaryCols.get(yy);
+        if (cols && cols.has(checkX)) {
           hasBlackBoundary = true;
           break;
         }
       }
-      const gapToUse = hasBlackBoundary ? boundaryGapPxX : gapPxX;
-      const startX = Math.max(0, x - gapToUse);
-      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
-        const rowOffset = yy * maskWidth;
-        for (let xx = startX; xx < x; xx++) {
-          if (!available[rowOffset + xx]) {
-            // 检查是否是黑色边界还是已放置矩形
-            const isBlack = originalMask[rowOffset + xx] <= 200;
-            if (!isBlack) {
-              // 是已放置矩形，必须满足gap间距
-              if (gapToUse < gapPxX) {
+      
+      // 只有当有黑色边界时，才需要检查间距；或者当gap > 0时，检查与已放置矩形的间距
+      if (hasBlackBoundary || gapPxX > 0) {
+        const gapToUse = hasBlackBoundary ? boundaryGapPxX : gapPxX;
+        const startX = Math.max(0, x - gapToUse);
+        for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+          const rowOffset = yy * maskWidth;
+          const cols = blackBoundaryCols.get(yy);
+          for (let xx = startX; xx < x; xx++) {
+            if (!available[rowOffset + xx]) {
+              // 使用预计算的边界信息快速判断是否是黑色边界
+              const isBlack = cols && cols.has(xx);
+              if (isBlack && !hasBlackBoundary) {
+                // 如果是黑色边界但之前没检测到，需要保持1mm间距
+                return false;
+              } else if (!isBlack && gapPxX > 0) {
+                // 是已放置矩形，只有当gap > 0时才需要检查间距
                 return false;
               }
             }
@@ -605,23 +652,33 @@ export async function suggestRectanglesFromMask(
     // 右边界：检查矩形右侧是否有黑色边界或已放置矩形
     if (x + w < maskWidth) {
       const rightEdge = x + w;
+      // 使用预计算的边界信息快速检查右边缘是否有黑色边界
       let hasBlackBoundary = false;
-      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
-        const idx = yy * maskWidth + Math.min(maskWidth - 1, rightEdge);
-        if (originalMask[idx] <= 200) {
-          hasBlackBoundary = true;
-          break;
+      if (rightEdge < maskWidth) {
+        for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+          const cols = blackBoundaryCols.get(yy);
+          if (cols && cols.has(rightEdge)) {
+            hasBlackBoundary = true;
+            break;
+          }
         }
       }
-      const gapToUse = hasBlackBoundary ? boundaryGapPxX : gapPxX;
-      const endX = Math.min(maskWidth, rightEdge + gapToUse);
-      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
-        const rowOffset = yy * maskWidth;
-        for (let xx = rightEdge; xx < endX; xx++) {
-          if (!available[rowOffset + xx]) {
-            const isBlack = originalMask[rowOffset + xx] <= 200;
-            if (!isBlack && gapToUse < gapPxX) {
-              return false;
+      
+      if (hasBlackBoundary || gapPxX > 0) {
+        const gapToUse = hasBlackBoundary ? boundaryGapPxX : gapPxX;
+        const endX = Math.min(maskWidth, rightEdge + gapToUse);
+        for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+          const rowOffset = yy * maskWidth;
+          const cols = blackBoundaryCols.get(yy);
+          for (let xx = rightEdge; xx < endX; xx++) {
+            if (!available[rowOffset + xx]) {
+              // 使用预计算的边界信息快速判断是否是黑色边界
+              const isBlack = cols && cols.has(xx);
+              if (isBlack && !hasBlackBoundary) {
+                return false;
+              } else if (!isBlack && gapPxX > 0) {
+                return false;
+              }
             }
           }
         }
@@ -630,23 +687,34 @@ export async function suggestRectanglesFromMask(
 
     // 上边界：检查矩形上侧是否有黑色边界或已放置矩形
     if (y > 0) {
+      // 使用预计算的边界信息快速检查上边缘是否有黑色边界
       let hasBlackBoundary = false;
-      for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
-        const idx = Math.max(0, y - 1) * maskWidth + xx;
-        if (originalMask[idx] <= 200) {
-          hasBlackBoundary = true;
-          break;
+      const checkY = Math.max(0, y - 1);
+      const cols = blackBoundaryCols.get(checkY);
+      if (cols) {
+        for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+          if (cols.has(xx)) {
+            hasBlackBoundary = true;
+            break;
+          }
         }
       }
-      const gapToUse = hasBlackBoundary ? boundaryGapPxY : gapPxY;
-      const startY = Math.max(0, y - gapToUse);
-      for (let yy = startY; yy < y; yy++) {
-        const rowOffset = yy * maskWidth;
-        for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
-          if (!available[rowOffset + xx]) {
-            const isBlack = originalMask[rowOffset + xx] <= 200;
-            if (!isBlack && gapToUse < gapPxY) {
-              return false;
+      
+      if (hasBlackBoundary || gapPxY > 0) {
+        const gapToUse = hasBlackBoundary ? boundaryGapPxY : gapPxY;
+        const startY = Math.max(0, y - gapToUse);
+        for (let yy = startY; yy < y; yy++) {
+          const rowOffset = yy * maskWidth;
+          const rowCols = blackBoundaryCols.get(yy);
+          for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+            if (!available[rowOffset + xx]) {
+              // 使用预计算的边界信息快速判断是否是黑色边界
+              const isBlack = rowCols && rowCols.has(xx);
+              if (isBlack && !hasBlackBoundary) {
+                return false;
+              } else if (!isBlack && gapPxY > 0) {
+                return false;
+              }
             }
           }
         }
@@ -656,23 +724,35 @@ export async function suggestRectanglesFromMask(
     // 下边界：检查矩形下侧是否有黑色边界或已放置矩形
     if (y + h < maskHeight) {
       const bottomEdge = y + h;
+      // 使用预计算的边界信息快速检查下边缘是否有黑色边界
       let hasBlackBoundary = false;
-      for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
-        const idx = Math.min(maskHeight - 1, bottomEdge) * maskWidth + xx;
-        if (originalMask[idx] <= 200) {
-          hasBlackBoundary = true;
-          break;
+      if (bottomEdge < maskHeight) {
+        const cols = blackBoundaryCols.get(bottomEdge);
+        if (cols) {
+          for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+            if (cols.has(xx)) {
+              hasBlackBoundary = true;
+              break;
+            }
+          }
         }
       }
-      const gapToUse = hasBlackBoundary ? boundaryGapPxY : gapPxY;
-      const endY = Math.min(maskHeight, bottomEdge + gapToUse);
-      for (let yy = bottomEdge; yy < endY; yy++) {
-        const rowOffset = yy * maskWidth;
-        for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
-          if (!available[rowOffset + xx]) {
-            const isBlack = originalMask[rowOffset + xx] <= 200;
-            if (!isBlack && gapToUse < gapPxY) {
-              return false;
+      
+      if (hasBlackBoundary || gapPxY > 0) {
+        const gapToUse = hasBlackBoundary ? boundaryGapPxY : gapPxY;
+        const endY = Math.min(maskHeight, bottomEdge + gapToUse);
+        for (let yy = bottomEdge; yy < endY; yy++) {
+          const rowOffset = yy * maskWidth;
+          const rowCols = blackBoundaryCols.get(yy);
+          for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+            if (!available[rowOffset + xx]) {
+              // 使用预计算的边界信息快速判断是否是黑色边界
+              const isBlack = rowCols && rowCols.has(xx);
+              if (isBlack && !hasBlackBoundary) {
+                return false;
+              } else if (!isBlack && gapPxY > 0) {
+                return false;
+              }
             }
           }
         }
@@ -710,15 +790,29 @@ export async function suggestRectanglesFromMask(
     // 标记周围的间距区域
     // 左边界
     if (x > 0) {
-      const isBlackBoundary = x > 0 && (originalMask[y * maskWidth + Math.max(0, x - 1)] <= 200);
-      const gapToUse = isBlackBoundary ? boundaryGapPxX : gapPxX;
-      const startX = Math.max(0, x - gapToUse);
+      // 使用预计算的边界信息快速检查左边缘是否有黑色边界
+      let isBlackBoundary = false;
+      const checkX = Math.max(0, x - 1);
       for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
-        const rowOffset = yy * maskWidth;
-        for (let xx = startX; xx < x; xx++) {
-          // 只有白色区域才能标记（已放置矩形的区域已经标记过了）
-          if (originalMask[rowOffset + xx] > 200) {
-            available[rowOffset + xx] = 0;
+        const cols = blackBoundaryCols.get(yy);
+        if (cols && cols.has(checkX)) {
+          isBlackBoundary = true;
+          break;
+        }
+      }
+      // 只有当有黑色边界或gap > 0时，才标记间距区域
+      if (isBlackBoundary || gapPxX > 0) {
+        const gapToUse = isBlackBoundary ? boundaryGapPxX : gapPxX;
+        const startX = Math.max(0, x - gapToUse);
+        for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+          const rowOffset = yy * maskWidth;
+          const cols = blackBoundaryCols.get(yy);
+          for (let xx = startX; xx < x; xx++) {
+            // 只有白色区域才能标记（已放置矩形的区域已经标记过了）
+            // 使用预计算的边界信息快速判断
+            if (!cols || !cols.has(xx)) {
+              available[rowOffset + xx] = 0;
+            }
           }
         }
       }
@@ -727,14 +821,28 @@ export async function suggestRectanglesFromMask(
     // 右边界
     if (x + w < maskWidth) {
       const rightEdge = x + w;
-      const isBlackBoundary = rightEdge < maskWidth && (originalMask[y * maskWidth + Math.min(maskWidth - 1, rightEdge)] <= 200);
-      const gapToUse = isBlackBoundary ? boundaryGapPxX : gapPxX;
-      const endX = Math.min(maskWidth, rightEdge + gapToUse);
-      for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
-        const rowOffset = yy * maskWidth;
-        for (let xx = rightEdge; xx < endX; xx++) {
-          if (originalMask[rowOffset + xx] > 200) {
-            available[rowOffset + xx] = 0;
+      // 使用预计算的边界信息快速检查右边缘是否有黑色边界
+      let isBlackBoundary = false;
+      if (rightEdge < maskWidth) {
+        for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+          const cols = blackBoundaryCols.get(yy);
+          if (cols && cols.has(rightEdge)) {
+            isBlackBoundary = true;
+            break;
+          }
+        }
+      }
+      if (isBlackBoundary || gapPxX > 0) {
+        const gapToUse = isBlackBoundary ? boundaryGapPxX : gapPxX;
+        const endX = Math.min(maskWidth, rightEdge + gapToUse);
+        for (let yy = y; yy < y + h && yy < maskHeight; yy++) {
+          const rowOffset = yy * maskWidth;
+          const cols = blackBoundaryCols.get(yy);
+          for (let xx = rightEdge; xx < endX; xx++) {
+            // 使用预计算的边界信息快速判断
+            if (!cols || !cols.has(xx)) {
+              available[rowOffset + xx] = 0;
+            }
           }
         }
       }
@@ -742,14 +850,29 @@ export async function suggestRectanglesFromMask(
 
     // 上边界
     if (y > 0) {
-      const isBlackBoundary = y > 0 && (originalMask[Math.max(0, y - 1) * maskWidth + x] <= 200);
-      const gapToUse = isBlackBoundary ? boundaryGapPxY : gapPxY;
-      const startY = Math.max(0, y - gapToUse);
-      for (let yy = startY; yy < y; yy++) {
-        const rowOffset = yy * maskWidth;
+      // 使用预计算的边界信息快速检查上边缘是否有黑色边界
+      let isBlackBoundary = false;
+      const checkY = Math.max(0, y - 1);
+      const cols = blackBoundaryCols.get(checkY);
+      if (cols) {
         for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
-          if (originalMask[rowOffset + xx] > 200) {
-            available[rowOffset + xx] = 0;
+          if (cols.has(xx)) {
+            isBlackBoundary = true;
+            break;
+          }
+        }
+      }
+      if (isBlackBoundary || gapPxY > 0) {
+        const gapToUse = isBlackBoundary ? boundaryGapPxY : gapPxY;
+        const startY = Math.max(0, y - gapToUse);
+        for (let yy = startY; yy < y; yy++) {
+          const rowOffset = yy * maskWidth;
+          const rowCols = blackBoundaryCols.get(yy);
+          for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+            // 使用预计算的边界信息快速判断
+            if (!rowCols || !rowCols.has(xx)) {
+              available[rowOffset + xx] = 0;
+            }
           }
         }
       }
@@ -758,14 +881,30 @@ export async function suggestRectanglesFromMask(
     // 下边界
     if (y + h < maskHeight) {
       const bottomEdge = y + h;
-      const isBlackBoundary = bottomEdge < maskHeight && (originalMask[Math.min(maskHeight - 1, bottomEdge) * maskWidth + x] <= 200);
-      const gapToUse = isBlackBoundary ? boundaryGapPxY : gapPxY;
-      const endY = Math.min(maskHeight, bottomEdge + gapToUse);
-      for (let yy = bottomEdge; yy < endY; yy++) {
-        const rowOffset = yy * maskWidth;
-        for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
-          if (originalMask[rowOffset + xx] > 200) {
-            available[rowOffset + xx] = 0;
+      // 使用预计算的边界信息快速检查下边缘是否有黑色边界
+      let isBlackBoundary = false;
+      if (bottomEdge < maskHeight) {
+        const cols = blackBoundaryCols.get(bottomEdge);
+        if (cols) {
+          for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+            if (cols.has(xx)) {
+              isBlackBoundary = true;
+              break;
+            }
+          }
+        }
+      }
+      if (isBlackBoundary || gapPxY > 0) {
+        const gapToUse = isBlackBoundary ? boundaryGapPxY : gapPxY;
+        const endY = Math.min(maskHeight, bottomEdge + gapToUse);
+        for (let yy = bottomEdge; yy < endY; yy++) {
+          const rowOffset = yy * maskWidth;
+          const rowCols = blackBoundaryCols.get(yy);
+          for (let xx = x; xx < x + w && xx < maskWidth; xx++) {
+            // 使用预计算的边界信息快速判断
+            if (!rowCols || !rowCols.has(xx)) {
+              available[rowOffset + xx] = 0;
+            }
           }
         }
       }
@@ -774,45 +913,299 @@ export async function suggestRectanglesFromMask(
 
   const toMm = (valuePx: number, perMm: number) => valuePx / perMm;
 
+  // 当gap=0时，跟踪已放置矩形的边缘位置，用于优化对齐
+  // 优化：限制边缘数量，只保留最近的边缘位置（性能优化）
+  const MAX_EDGES = 50; // 最多保留50个边缘位置
+  const placedEdges = gapPxX === 0 && gapPxY === 0 ? {
+    rightEdges: new Set<number>(), // 已放置矩形的右边缘x坐标
+    bottomEdges: new Set<number>(), // 已放置矩形的下边缘y坐标
+    // 维护边缘位置的添加顺序（用于限制数量）
+    rightEdgesOrder: [] as number[],
+    bottomEdgesOrder: [] as number[],
+  } : null;
+
+  // 改进的搜索策略：动态生成候选位置，包括已放置矩形的边缘和可用区域的起始点（优化版）
+  // 缓存行偏移量，避免重复计算
+  const findCandidatePositions = (currentY: number): Array<{ x: number; priority: number }> => {
+    const candidates: Array<{ x: number; priority: number }> = [];
+    const seenX = new Set<number>();
+    const rowOffset = currentY * maskWidth;
+    
+    // 1. 高优先级：已放置矩形的边缘位置（优先这些位置，因为可以紧密填充）
+    if (placedEdges && placedEdges.rightEdges.size > 0) {
+      // 预过滤：只考虑在当前行有效的边缘位置
+      for (const edgeX of placedEdges.rightEdges) {
+        if (edgeX >= 0 && edgeX < maskWidth && !seenX.has(edgeX) && available[rowOffset + edgeX] !== 0) {
+          candidates.push({ x: edgeX, priority: 1 });
+          seenX.add(edgeX);
+        }
+      }
+    }
+    
+    // 2. 中优先级：使用更细粒度的步长来查找可用区域的起始位置
+    // 使用step/2的步长来捕获更多可用区域的起始点，但不扫描整行（性能优化）
+    const fineStepX = Math.max(1, Math.floor(stepPxX / 2));
+    for (let x = 0; x < maskWidth; x += fineStepX) {
+      if (!seenX.has(x) && available[rowOffset + x] !== 0) {
+        // 检查这是否是一个可用区域的起始点（左边不可用或边界）
+        if (x === 0 || available[rowOffset + x - 1] === 0) {
+          candidates.push({ x: x, priority: 2 });
+          seenX.add(x);
+        }
+      }
+    }
+    
+    // 3. 低优先级：基于步长的常规搜索点（补充覆盖）
+    // 只添加未被高/中优先级覆盖的位置
+    for (let x = 0; x < maskWidth; x += stepPxX) {
+      if (!seenX.has(x)) {
+        candidates.push({ x: x, priority: 3 });
+        seenX.add(x);
+      }
+    }
+    
+    // 优化排序：按优先级分组，只对同优先级内的元素按x坐标排序
+    // 这样可以减少排序比较次数
+    const byPriority: Array<Array<{ x: number; priority: number }>> = [[], [], []];
+    for (const candidate of candidates) {
+      byPriority[candidate.priority - 1].push(candidate);
+    }
+    
+    // 只对每个优先级组内排序
+    for (const group of byPriority) {
+      if (group.length > 1) {
+        group.sort((a, b) => a.x - b.x);
+      }
+    }
+    
+    // 合并结果（已经按优先级顺序）
+    return byPriority.flat();
+  };
+
+  // 主循环：按行扫描，放置矩形
   for (let y = 0; y < maskHeight && suggestions.length < maxShapes; y += stepPxY) {
     if (shouldAbort && shouldAbort()) {
       break;
     }
     
     processedRows += 1;
-    for (let x = 0; x < maskWidth && suggestions.length < maxShapes; x += stepPxX) {
+    
+    // 在同一行持续尝试放置矩形，直到无法再放置为止
+    let placedInRow = true;
+    while (placedInRow && suggestions.length < maxShapes) {
       if (shouldAbort && shouldAbort()) {
         break;
       }
       
-      if (!available[y * maskWidth + x]) continue;
+      placedInRow = false; // 假设本次循环无法放置，如果成功放置则设为true
+      
+      // 每次循环都重新生成候选位置列表（包含最新添加的边缘位置）
+      const candidatePositions = findCandidatePositions(y);
+      
+      // 对每个候选位置，尝试找到最大的可放置矩形
+      for (const candidate of candidatePositions) {
+        if (shouldAbort && shouldAbort()) {
+          break;
+        }
+        
+        const x = candidate.x;
+        if (x >= maskWidth) continue;
+        if (!available[y * maskWidth + x]) continue;
 
-      for (const pair of sizePairs) {
-        const widthPx = Math.max(1, Math.round(pair.widthMm * pxPerMmX));
-        const heightPx = Math.max(1, Math.round(pair.heightMm * pxPerMmY));
-        if (widthPx < 1 || heightPx < 1) continue;
-        if (x + widthPx > maskWidth || y + heightPx > maskHeight) continue;
+        // 尝试所有尺寸组合，找到最大的可放置矩形
+        let bestRect: { x: number; y: number; w: number; h: number; area: number } | null = null;
+        
+        for (const pair of sizePairs) {
+          // 检查是否应该中止
+          if (shouldAbort && shouldAbort()) {
+            break;
+          }
+          
+          const widthPx = Math.max(1, Math.round(pair.widthMm * pxPerMmX));
+          const heightPx = Math.max(1, Math.round(pair.heightMm * pxPerMmY));
+          if (widthPx < 1 || heightPx < 1) continue;
+          
+          // 验证是否满足最小宽度和最小高度要求（使用预先计算的值）
+          if (widthPx < minWidthPx || heightPx < minHeightPx) continue;
+          
+          // 初步边界检查（边缘对齐后还会再次检查）
+          if (x + widthPx > maskWidth || y + heightPx > maskHeight) continue;
 
-        if (!isAreaUnused(x, y, widthPx, heightPx)) continue;
+          // 如果gap=0，尝试将位置精确对齐到已放置矩形的边缘
+          let finalX = x;
+          let finalY = y;
+          
+          if (placedEdges) {
+            // 首先尝试对齐到已放置矩形的边缘（优先X轴，再Y轴）
+            // 尝试对齐到已放置矩形的右边缘（X轴对齐）
+            // 优化：预过滤边缘位置，只考虑在合理范围内的边缘
+            let bestX = finalX;
+            let bestScoreX = Infinity;
+            const maxDistanceX = Math.min(stepPxX * 2, maskWidth / 4); // 只考虑距离候选位置较近的边缘
+            
+            for (const edgeX of placedEdges.rightEdges) {
+              // 在边缘对齐循环中也检查abort
+              if (shouldAbort && shouldAbort()) {
+                break;
+              }
+              // 预过滤：只考虑在合理范围内的边缘
+              const distance = Math.abs(edgeX - x);
+              if (distance > maxDistanceX) continue;
+              
+              if (edgeX >= 0 && edgeX < maskWidth && edgeX + widthPx <= maskWidth) {
+                const testX = edgeX;
+                const rowOffset = y * maskWidth;
+                if (testX >= 0 && testX < maskWidth && available[rowOffset + testX]) {
+                  const score = distance; // 已经计算过距离，直接使用
+                  if (score < bestScoreX) {
+                    bestScoreX = score;
+                    bestX = testX;
+                    // 如果找到非常接近的位置，可以提前退出（性能优化）
+                    if (score <= 1) break;
+                  }
+                }
+              }
+            }
+            if (bestScoreX < Infinity) {
+              finalX = bestX;
+            }
+            
+            // 然后尝试对齐到已放置矩形的下边缘（Y轴对齐）
+            let bestY = finalY;
+            let bestScoreY = Infinity;
+            const maxDistanceY = Math.min(stepPxY * 2, maskHeight / 4); // 只考虑距离候选位置较近的边缘
+            
+            for (const edgeY of placedEdges.bottomEdges) {
+              // 在边缘对齐循环中也检查abort
+              if (shouldAbort && shouldAbort()) {
+                break;
+              }
+              // 预过滤：只考虑在合理范围内的边缘
+              const distance = Math.abs(edgeY - y);
+              if (distance > maxDistanceY) continue;
+              
+              if (edgeY >= 0 && edgeY < maskHeight && edgeY + heightPx <= maskHeight) {
+                const testY = edgeY;
+                if (testY >= 0 && testY < maskHeight &&
+                    available[testY * maskWidth + finalX]) {
+                  const score = distance; // 已经计算过距离，直接使用
+                  if (score < bestScoreY) {
+                    bestScoreY = score;
+                    bestY = testY;
+                    // 如果找到非常接近的位置，可以提前退出（性能优化）
+                    if (score <= 1) break;
+                  }
+                }
+              }
+            }
+            if (bestScoreY < Infinity) {
+              finalY = bestY;
+            }
+          }
 
-        const coverage = whiteCoverageRatio(x, y, widthPx, heightPx);
-        if (coverage < coverageThreshold) continue;
+          // 在调用isAreaUnused之前再次检查abort（因为isAreaUnused可能执行很长时间）
+          if (shouldAbort && shouldAbort()) {
+            break;
+          }
+          
+          // 边缘对齐后，重新检查边界（因为 finalX 和 finalY 可能已改变）
+          if (finalX + widthPx > maskWidth || finalY + heightPx > maskHeight) continue;
+          
+          // 统一检查位置是否可用
+          if (!isAreaUnused(finalX, finalY, widthPx, heightPx)) continue;
 
-        suggestions.push({
-          xMm: toMm(x, pxPerMmX),
-          yMm: toMm(y, pxPerMmY),
-          widthMm: toMm(widthPx, pxPerMmX),
-          heightMm: toMm(heightPx, pxPerMmY),
-        });
+          const coverage = whiteCoverageRatio(finalX, finalY, widthPx, heightPx);
+          if (coverage < coverageThreshold) continue;
 
-        markUsed(x, y, widthPx, heightPx);
-        break;
+          const area = widthPx * heightPx;
+          // 记录最大的可放置矩形
+          if (!bestRect || area > bestRect.area) {
+            bestRect = {
+              x: finalX,
+              y: finalY,
+              w: widthPx,
+              h: heightPx,
+              area: area
+            };
+          }
+          
+          // 由于sizePairs已按面积从大到小排序，找到的第一个可放置矩形就是最大的
+          // 但如果当前矩形面积较小，继续搜索可能找到更大的可放置矩形
+          // 所以我们继续尝试所有尺寸，选择最大的
+        }
+        
+        // 放置找到的最佳矩形
+        if (bestRect) {
+          const newSuggestion: RectangleSuggestion = {
+            xMm: toMm(bestRect.x, pxPerMmX),
+            yMm: toMm(bestRect.y, pxPerMmY),
+            widthMm: toMm(bestRect.w, pxPerMmX),
+            heightMm: toMm(bestRect.h, pxPerMmY),
+          };
+          
+          suggestions.push(newSuggestion);
+          
+          // 立即调用回调，通知新矩形已添加
+          if (onRectangleAdded) {
+            try {
+              const maybe = onRectangleAdded(newSuggestion);
+              if (maybe instanceof Promise) {
+                await maybe;
+              }
+            } catch (error) {
+              console.warn('[suggestRectanglesFromMask] 矩形添加回调异常', error);
+            }
+          }
+
+          markUsed(bestRect.x, bestRect.y, bestRect.w, bestRect.h);
+          
+          // 记录已放置矩形的边缘位置（用于gap=0时的对齐优化）
+          // 优化：限制边缘数量，只保留最近的边缘位置
+          if (placedEdges) {
+            const rightEdge = bestRect.x + bestRect.w;
+            const bottomEdge = bestRect.y + bestRect.h;
+            
+            // 添加新的边缘位置
+            if (!placedEdges.rightEdges.has(rightEdge)) {
+              placedEdges.rightEdges.add(rightEdge);
+              placedEdges.rightEdgesOrder.push(rightEdge);
+              // 如果超过最大数量，移除最旧的边缘位置
+              if (placedEdges.rightEdgesOrder.length > MAX_EDGES) {
+                const oldest = placedEdges.rightEdgesOrder.shift()!;
+                placedEdges.rightEdges.delete(oldest);
+              }
+            }
+            
+            if (!placedEdges.bottomEdges.has(bottomEdge)) {
+              placedEdges.bottomEdges.add(bottomEdge);
+              placedEdges.bottomEdgesOrder.push(bottomEdge);
+              // 如果超过最大数量，移除最旧的边缘位置
+              if (placedEdges.bottomEdgesOrder.length > MAX_EDGES) {
+                const oldest = placedEdges.bottomEdgesOrder.shift()!;
+                placedEdges.bottomEdges.delete(oldest);
+              }
+            }
+          }
+          
+          // 成功放置了一个矩形，标记为true，继续在同一行尝试
+          placedInRow = true;
+          break; // 跳出候选位置循环，重新生成候选位置列表后继续
+        }
       }
     }
 
+    // 在报告进度前检查abort
+    if (shouldAbort && shouldAbort()) {
+      break;
+    }
+    
     await reportProgress();
 
     if (yieldAfterRows > 0 && processedRows % yieldAfterRows === 0) {
+      // 在yield前再次检查abort
+      if (shouldAbort && shouldAbort()) {
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     
@@ -820,6 +1213,9 @@ export async function suggestRectanglesFromMask(
       break;
     }
   }
+
+  // 移除低效的第二轮扫描，改为在第一轮使用更智能的搜索策略
+  // 通过改进的候选位置生成和立即填充策略，可以在单轮扫描中充分利用空间
 
   processedRows = Math.min(processedRows, totalRows);
   await reportProgress(true);

@@ -99,8 +99,8 @@
       },
       "autoFill": {
         "title": "[Auto-fill Rectangles]",
-        "maxRectWidth": "Max Width (mm)",
-        "maxRectHeight": "Max Height (mm)",
+        "minRectWidth": "Min Width (mm)",
+        "minRectHeight": "Min Height (mm)",
         "gap": "Rectangle Gap (mm)",
         "step": "Scan Step (mm)",
         "button": "Auto-fill Rectangles",

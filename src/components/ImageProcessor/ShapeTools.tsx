@@ -15,8 +15,8 @@ interface ShapeState {
   strokeColor: string;
   gap: number;
   step: number;
-  maxRectWidth: number;
-  maxRectHeight: number;
+  minRectWidth: number;
+  minRectHeight: number;
 }
 
 interface ShapeToolsProps {
@@ -146,28 +146,28 @@ const ShapeTools: React.FC<ShapeToolsProps> = ({
             />
           </label>
           <label>
-            {t('imageProcessor.shapeTools.autoFill.maxRectWidth')}
+            {t('imageProcessor.shapeTools.autoFill.minRectWidth')}
             <input
               type="number"
               min={1}
               step={1}
-              value={shapeState.maxRectWidth}
+              value={shapeState.minRectWidth}
               onChange={(e) => {
                 const value = Number(e.target.value);
-                onShapeStateChange({ maxRectWidth: Number.isFinite(value) ? Math.max(1, value) : 200 });
+                onShapeStateChange({ minRectWidth: Number.isFinite(value) ? Math.max(1, value) : 30 });
               }}
             />
           </label>
           <label>
-            {t('imageProcessor.shapeTools.autoFill.maxRectHeight')}
+            {t('imageProcessor.shapeTools.autoFill.minRectHeight')}
             <input
               type="number"
               min={1}
               step={1}
-              value={shapeState.maxRectHeight}
+              value={shapeState.minRectHeight}
               onChange={(e) => {
                 const value = Number(e.target.value);
-                onShapeStateChange({ maxRectHeight: Number.isFinite(value) ? Math.max(1, value) : 200 });
+                onShapeStateChange({ minRectHeight: Number.isFinite(value) ? Math.max(1, value) : 20 });
               }}
             />
           </label>

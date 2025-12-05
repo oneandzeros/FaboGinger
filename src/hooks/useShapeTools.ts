@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { SvgProcessResult, suggestRectanglesFromMask, RectanglePackingProgress } from '../utils/imageProcessor';
+import { SvgProcessResult, suggestRectanglesFromMask, RectanglePackingProgress, RectangleSuggestion } from '../utils/imageProcessor';
 import { getBoundaryBoxBounds, parseSvgViewBox } from '../utils/svgUtils';
 
 /**
@@ -99,8 +99,8 @@ interface ShapeState {
   strokeColor: string;
   gap: number; // 仅自动填充使用
   step: number; // 仅自动填充使用
-  maxRectWidth: number; // 最大矩形宽度（mm）
-  maxRectHeight: number; // 最大矩形高度（mm）
+  minRectWidth: number; // 最小矩形宽度（mm）
+  minRectHeight: number; // 最小矩形高度（mm）
 }
 
 interface UseShapeToolsProps {
@@ -132,9 +132,9 @@ const DEFAULT_SHAPE_STATE: ShapeState = {
   strokeWidth: 0.1,
   strokeColor: '#ff4d4f',
   gap: 0,
-  step: 1.0,
-  maxRectWidth: 200,
-  maxRectHeight: 200,
+  step: 2.0,
+  minRectWidth: 30,
+  minRectHeight: 20,
 };
 
 export const useShapeTools = ({
@@ -157,8 +157,6 @@ export const useShapeTools = ({
   useEffect(() => {
     shapeStateRef.current = shapeState;
   }, [shapeState]);
-
-  const setShapeMessage = (message: string | null, tone: ShapeMessageTone = 'info') => {
 
   const setShapeMessage = (message: string | null, tone: ShapeMessageTone = 'info') => {
     setShapeMessageState(message);
@@ -400,21 +398,125 @@ export const useShapeTools = ({
       const innerY = boundaryY + paddingY;
       const innerWidth = Math.max(0, boundaryWidth - paddingX * 2);
       const innerHeight = Math.max(0, boundaryHeight - paddingY * 2);
+      
+      // 计算边界框的实际尺寸（毫米）- 用于进度显示和最大矩形尺寸
+      const boundaryWidthMm = boundaryWidth / pxPerMmX; // 边界框宽度（毫米）
+      const boundaryHeightMm = boundaryHeight / pxPerMmY; // 边界框高度（毫米）
+      const effectiveWidthMm = Math.max(0, boundaryWidthMm - paddingMm * 2); // 减去padding后的有效宽度（毫米）
+      const effectiveHeightMm = Math.max(0, boundaryHeightMm - paddingMm * 2); // 减去padding后的有效高度（毫米）
 
+      // 先解析SVG文档，提取已存在的自动填充矩形（用于在 mask 中标记为已占用）
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgResult.svg, 'image/svg+xml');
+      const root = doc.documentElement as SVGSVGElement | null;
+      if (!root || root.tagName.toLowerCase() !== 'svg') {
+        throw new Error('未找到 SVG 根节点');
+      }
+
+      // 提取已存在的自动填充矩形，用于在 mask 中标记为已占用
+      const existingRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+      const existingElements = root.querySelectorAll('[data-auto-fill="true"]');
+      existingElements.forEach((element) => {
+        if (element.tagName === 'rect') {
+          const rectEl = element as SVGRectElement;
+          const x = parseFloat(rectEl.getAttribute('x') || '0');
+          const y = parseFloat(rectEl.getAttribute('y') || '0');
+          const width = parseFloat(rectEl.getAttribute('width') || '0');
+          const height = parseFloat(rectEl.getAttribute('height') || '0');
+          if (Number.isFinite(x) && Number.isFinite(y) && 
+              Number.isFinite(width) && Number.isFinite(height) &&
+              width > 0 && height > 0) {
+            existingRects.push({ x, y, width, height });
+          }
+        } else if (element.tagName === 'path') {
+          // 对于 path 元素，使用 getBBox 获取边界框（如果可用）
+          const pathEl = element as SVGPathElement;
+          try {
+            const bbox = pathEl.getBBox();
+            if (bbox.width > 0 && bbox.height > 0) {
+              existingRects.push({ 
+                x: bbox.x, 
+                y: bbox.y, 
+                width: bbox.width, 
+                height: bbox.height 
+              });
+            }
+          } catch (e) {
+            // getBBox 可能在某些环境下不可用，跳过
+            console.warn('无法获取 path 元素的边界框:', e);
+          }
+        }
+      });
+
+      // 创建限制在边界框内部的mask，并应用padding（留白）
+      // 同时将已存在的矩形区域标记为已占用
       const restrictedMask = new Uint8Array(svgResult.viewWidth * svgResult.viewHeight);
       for (let y = 0; y < svgResult.viewHeight; y++) {
+        // 每处理10行检查一次abort，避免长时间阻塞
+        if (y % 10 === 0 && autoFillAbortRef.current) {
+          throw new Error('USER_CANCELLED');
+        }
         for (let x = 0; x < svgResult.viewWidth; x++) {
           const idx = y * svgResult.viewWidth + x;
           // 只有在边界框内部且在padding区域之外的区域才保留原始mask值
           if (x >= innerX && x < innerX + innerWidth &&
               y >= innerY && y < innerY + innerHeight) {
             restrictedMask[idx] = svgResult.mask[idx];
+            
+            // 检查是否在已存在的矩形区域内，如果是则标记为已占用（设为0/黑色）
+            const isInExistingRect = existingRects.some(rect => {
+              return x >= rect.x && x < rect.x + rect.width &&
+                     y >= rect.y && y < rect.y + rect.height;
+            });
+            if (isInExistingRect) {
+              restrictedMask[idx] = 0; // 标记为已占用
+            }
           } else {
             // 边界框外或padding区域内设为0（黑色，不可用）
             restrictedMask[idx] = 0;
           }
         }
       }
+      
+      // 在调用suggestRectanglesFromMask之前再次检查abort
+      if (autoFillAbortRef.current) {
+        throw new Error('USER_CANCELLED');
+      }
+
+      const ns = 'http://www.w3.org/2000/svg';
+      const cornerRadiusPx = Math.max(0, actualShapeState.cornerRadius) * Math.min(pxPerMmX, pxPerMmY);
+      const strokeWidthPx = Math.max(0.1, actualShapeState.strokeWidth * Math.min(pxPerMmX, pxPerMmY));
+
+      // 存储实时添加的矩形，用于最后合并（当gap=0时）
+      const realtimeRects: Array<{ rect: RectangleSuggestion; element: Element }> = [];
+
+      // 添加单个矩形到SVG的辅助函数
+      const addRectToSvg = (rect: RectangleSuggestion): Element => {
+        const el = doc.createElementNS(ns, 'rect');
+        const xPx = rect.xMm * pxPerMmX;
+        const yPx = rect.yMm * pxPerMmY;
+        const wPx = rect.widthMm * pxPerMmX;
+        const hPx = rect.heightMm * pxPerMmY;
+
+        el.setAttribute('x', `${xPx}`);
+        el.setAttribute('y', `${yPx}`);
+        el.setAttribute('width', `${wPx}`);
+        el.setAttribute('height', `${hPx}`);
+        const maxRadiusPx = Math.min(wPx, hPx) / 2;
+        const radiusPx = Math.min(cornerRadiusPx, maxRadiusPx);
+        if (radiusPx > 0) {
+          el.setAttribute('rx', `${radiusPx}`);
+          el.setAttribute('ry', `${radiusPx}`);
+        }
+        el.setAttribute('fill', 'none');
+        el.setAttribute('stroke', actualShapeState.strokeColor);
+        el.setAttribute('stroke-width', `${strokeWidthPx}`);
+        el.setAttribute('vector-effect', 'non-scaling-stroke');
+        el.setAttribute('data-auto-fill', 'true');
+        el.setAttribute('data-extra-shape', 'auto');
+        root.appendChild(el);
+        return el;
+      };
 
       // 使用最新的状态值（确保间距等参数是最新的）
       const suggestions = await suggestRectanglesFromMask(
@@ -424,22 +526,37 @@ export const useShapeTools = ({
         svgResult.widthMm,
         svgResult.heightMm,
         {
-          maxWidthMm: Math.max(1, actualShapeState.maxRectWidth),
-          maxHeightMm: Math.max(1, actualShapeState.maxRectHeight),
-          minWidthMm: 30,
-          minHeightMm: 20,
+          // 最大宽高使用边界框的有效尺寸（不设限）
+          maxWidthMm: Math.max(1, effectiveWidthMm),
+          maxHeightMm: Math.max(1, effectiveHeightMm),
+          // 最小宽高使用用户设置的值
+          minWidthMm: Math.max(1, actualShapeState.minRectWidth),
+          minHeightMm: Math.max(1, actualShapeState.minRectHeight),
           stepMm: Math.max(1.0, actualShapeState.step),
           gapMm: actualShapeState.gap, // 使用最新的间距值
           coverageThreshold: 0.9,
           orientation: 'both',
           maxShapes: 500,
           progressIntervalRows: 5,
-          yieldAfterRows: 20,
+          yieldAfterRows: 2, // 减少到2行，让yield更频繁，确保stop按钮能及时响应
           onProgress: (progress) => {
             setAutoFillProgress(progress);
           },
+          onRectangleAdded: async (rect) => {
+            // 实时添加矩形到SVG
+            const element = addRectToSvg(rect);
+            realtimeRects.push({ rect, element });
+            
+            // 更新SVG显示
+            const serialized = new XMLSerializer().serializeToString(doc);
+            onSvgUpdate(serialized);
+            
+            // 让出控制权，确保UI可以更新
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          },
           shouldAbort: () => autoFillAbortRef.current,
           originalMask: svgResult.mask, // 传递原始mask用于区分黑色边界
+          effectiveHeightMm: effectiveHeightMm, // 传递有效扫描区域高度，用于正确计算总行数
         }
       );
 
@@ -453,31 +570,22 @@ export const useShapeTools = ({
         return;
       }
 
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(svgResult.svg, 'image/svg+xml');
-      const root = doc.documentElement as SVGSVGElement | null;
-      if (!root || root.tagName.toLowerCase() !== 'svg') {
-        throw new Error('未找到 SVG 根节点');
-      }
+      // 所有矩形已经通过 onRectangleAdded 实时添加，现在检查是否需要合并（gap=0时）
+      if (actualShapeState.gap === 0 && cornerRadiusPx === 0 && suggestions.length > 0) {
+        // 删除所有实时添加的单独rect元素
+        realtimeRects.forEach(({ element }) => {
+          element.parentNode?.removeChild(element);
+        });
 
-      const existing = root.querySelectorAll('[data-auto-fill="true"]');
-      existing.forEach((node) => node.parentNode?.removeChild(node));
-
-      const ns = 'http://www.w3.org/2000/svg';
-      const cornerRadiusPx = Math.max(0, actualShapeState.cornerRadius) * Math.min(pxPerMmX, pxPerMmY);
-      const strokeWidthPx = Math.max(0.1, actualShapeState.strokeWidth * Math.min(pxPerMmX, pxPerMmY));
-
-      // 如果间距为0，使用path合并相邻矩形，去重重合的边（使用最新的状态值）
-      if (actualShapeState.gap === 0 && cornerRadiusPx === 0) {
         // 将所有矩形转换为路径，合并相邻的矩形
-        const tolerance = 0.5; // 允许的误差（像素）
+        const tolerance = 2.0; // 允许的误差（像素）- 增加到2像素以处理微小的对齐误差
         
-        // 先添加所有矩形作为单独的路径，然后检测并合并相邻的
+        // 先将坐标对齐到整数像素，确保精确对齐
         const rects: Array<{ x: number; y: number; w: number; h: number }> = suggestions.map((rect) => ({
-          x: rect.xMm * pxPerMmX,
-          y: rect.yMm * pxPerMmY,
-          w: rect.widthMm * pxPerMmX,
-          h: rect.heightMm * pxPerMmY,
+          x: Math.round(rect.xMm * pxPerMmX), // 对齐到整数像素
+          y: Math.round(rect.yMm * pxPerMmY), // 对齐到整数像素
+          w: Math.round(rect.widthMm * pxPerMmX), // 对齐到整数像素
+          h: Math.round(rect.heightMm * pxPerMmY), // 对齐到整数像素
         }));
 
         // 创建一个函数来生成矩形的路径（只绘制外轮廓）
@@ -490,6 +598,11 @@ export const useShapeTools = ({
         const processed = new Set<number>();
         
         for (let i = 0; i < rects.length; i++) {
+          // 检查是否应该中止
+          if (autoFillAbortRef.current) {
+            throw new Error('USER_CANCELLED');
+          }
+          
           if (processed.has(i)) continue;
           
           const currentRects = [rects[i]];
@@ -498,6 +611,11 @@ export const useShapeTools = ({
           // 查找所有与当前矩形相邻的矩形
           let foundAdjacent = true;
           while (foundAdjacent) {
+            // 检查是否应该中止
+            if (autoFillAbortRef.current) {
+              throw new Error('USER_CANCELLED');
+            }
+            
             foundAdjacent = false;
             for (let j = 0; j < rects.length; j++) {
               if (processed.has(j)) continue;
@@ -567,6 +685,11 @@ export const useShapeTools = ({
         
         // 创建path元素
         mergedPaths.forEach((pathData) => {
+          // 检查是否应该中止
+          if (autoFillAbortRef.current) {
+            throw new Error('USER_CANCELLED');
+          }
+          
           const pathEl = doc.createElementNS(ns, 'path');
           pathEl.setAttribute('d', pathData);
           pathEl.setAttribute('fill', 'none');
@@ -579,41 +702,20 @@ export const useShapeTools = ({
           pathEl.setAttribute('data-extra-shape', 'auto');
           root.appendChild(pathEl);
         });
-      } else {
-        // 间距不为0，正常添加所有矩形
-        suggestions.forEach((rect) => {
-          const el = doc.createElementNS(ns, 'rect');
-          const xPx = rect.xMm * pxPerMmX;
-          const yPx = rect.yMm * pxPerMmY;
-          const wPx = rect.widthMm * pxPerMmX;
-          const hPx = rect.heightMm * pxPerMmY;
-
-          el.setAttribute('x', `${xPx}`);
-          el.setAttribute('y', `${yPx}`);
-          el.setAttribute('width', `${wPx}`);
-          el.setAttribute('height', `${hPx}`);
-          const maxRadiusPx = Math.min(wPx, hPx) / 2;
-          const radiusPx = Math.min(cornerRadiusPx, maxRadiusPx);
-          if (radiusPx > 0) {
-            el.setAttribute('rx', `${radiusPx}`);
-            el.setAttribute('ry', `${radiusPx}`);
-          }
-          el.setAttribute('fill', 'none');
-          el.setAttribute('stroke', actualShapeState.strokeColor);
-          el.setAttribute('stroke-width', `${strokeWidthPx}`);
-          el.setAttribute('vector-effect', 'non-scaling-stroke');
-          el.setAttribute('data-auto-fill', 'true');
-          el.setAttribute('data-extra-shape', 'auto');
-          root.appendChild(el);
-        });
       }
+      // 如果gap不为0或cornerRadius不为0，矩形已经通过onRectangleAdded实时添加，无需额外处理
 
       const serialized = new XMLSerializer().serializeToString(doc);
       onSvgUpdate(serialized);
       setShapeMessage(t('imageProcessor.shapeTools.messages.autoFillSuccess', { count: suggestions.length }), 'success');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setShapeMessage(t('imageProcessor.shapeTools.messages.autoFillFailed', { message }), 'error');
+      // 如果是用户取消操作，不显示错误信息，只显示取消消息
+      if (err instanceof Error && err.message === 'USER_CANCELLED') {
+        setShapeMessage(t('imageProcessor.shapeTools.messages.autoFillCancelled'), 'info');
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        setShapeMessage(t('imageProcessor.shapeTools.messages.autoFillFailed', { message }), 'error');
+      }
     } finally {
       setAutoFilling(false);
       setAutoFillProgress(null);

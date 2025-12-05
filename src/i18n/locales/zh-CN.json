@@ -99,8 +99,8 @@
       },
       "autoFill": {
         "title": "【自动填充矩形】",
-        "maxRectWidth": "最大宽度 (mm)",
-        "maxRectHeight": "最大高度 (mm)",
+        "minRectWidth": "最小宽度 (mm)",
+        "minRectHeight": "最小高度 (mm)",
         "gap": "矩形间距 (mm)",
         "step": "扫描步长 (mm)",
         "button": "自动填充矩形",

@@ -23,6 +23,7 @@
         "arch": ["x64"]
       }
     ],
+    "icon": "build/icon.ico",
     "publisherName": "FaboGinger",
     "verifyUpdateCodeSignature": false
   },
