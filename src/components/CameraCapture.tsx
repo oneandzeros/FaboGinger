@@ -177,8 +177,12 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onImageCaptured }) => {
   return (
     <div className="camera-capture">
       <div className="camera-preview">
-        <video ref={videoRef} playsInline muted className="camera-video" />
-        <canvas ref={canvasRef} className="capture-canvas" />
+        {!capturedImageData && (
+          <>
+            <video ref={videoRef} playsInline muted className="camera-video" />
+            <canvas ref={canvasRef} className="capture-canvas" />
+          </>
+        )}
         {capturedImageData && (
           <img 
             src={capturedImageData} 
@@ -187,9 +191,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onImageCaptured }) => {
               width: '100%', 
               height: '100%', 
               objectFit: 'contain',
-              position: 'absolute',
-              top: 0,
-              left: 0
+              display: 'block'
             }} 
           />
         )}

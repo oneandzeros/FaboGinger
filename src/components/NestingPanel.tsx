@@ -140,11 +140,11 @@ const NestingPanel: React.FC<NestingPanelProps> = ({ materialSvg, actualSize, on
     const day = String(now.getDate()).padStart(2, '0');
     const hour = String(now.getHours()).padStart(2, '0');
     const minute = String(now.getMinutes()).padStart(2, '0');
-    const timestamp = `${month}${day}-${hour}${minute}`;
+    const timestamp = `${month}${day}${hour}${minute}`;
     
     const filename = nestedResult 
-      ? `nested-result-${timestamp}.svg` 
-      : `material-${timestamp}.svg`;
+      ? `nested-result${timestamp}.svg` 
+      : `material${timestamp}.svg`;
     
     const blob = new Blob([svgToDownload], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);

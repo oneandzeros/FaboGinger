@@ -7,7 +7,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { RectanglePackingProgress } from '../../utils/imageProcessor';
 import { ShapeMessageTone } from '../../hooks/useShapeTools';
-import { SquareIcon, CircleIcon, PlayIcon, StopIcon, XIcon } from '../Icons';
+import { SquareIcon, CircleIcon, PlayIcon, StopIcon, XIcon, TrashIcon } from '../Icons';
 
 interface ShapeState {
   padding: number;
@@ -27,6 +27,7 @@ interface ShapeToolsProps {
   onAddShape: (shape: 'roundedRect' | 'circle') => void;
   onAutoFill: () => void;
   onStopAutoFill: () => void;
+  onClearShapes: () => void;
   autoFilling: boolean;
   autoFillProgress: RectanglePackingProgress | null;
   shapeMessage: string | null;
@@ -40,6 +41,7 @@ const ShapeTools: React.FC<ShapeToolsProps> = ({
   onAddShape,
   onAutoFill,
   onStopAutoFill,
+  onClearShapes,
   autoFilling,
   autoFillProgress,
   shapeMessage,
@@ -202,6 +204,10 @@ const ShapeTools: React.FC<ShapeToolsProps> = ({
           </label>
         </div>
         <div className="shape-buttons">
+          <button className="btn btn-secondary" onClick={onClearShapes}>
+            <TrashIcon size={18} />
+            <span>{t('imageProcessor.shapeTools.management.clearShapes')}</span>
+          </button>
           <button
             className="btn btn-primary"
             onClick={onAutoFill}

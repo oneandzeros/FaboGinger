@@ -317,13 +317,13 @@ const ImageProcessor: React.FC<ImageProcessorProps> = ({ imageData, onSvgGenerat
     const day = String(now.getDate()).padStart(2, '0');
     const hour = String(now.getHours()).padStart(2, '0');
     const minute = String(now.getMinutes()).padStart(2, '0');
-    const timestamp = `${month}${day}-${hour}${minute}`;
+    const timestamp = `${month}${day}${hour}${minute}`;
 
     const blob = new Blob([svgToDownload], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `material-${timestamp}.svg`;
+    a.download = `material${timestamp}.svg`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -411,7 +411,7 @@ const ImageProcessor: React.FC<ImageProcessorProps> = ({ imageData, onSvgGenerat
                 onWidthChange={boundaryBox.setBoundaryBoxWidthMm}
                 onHeightChange={boundaryBox.setBoundaryBoxHeightMm}
                 onAddBoundaryBox={handleAddBoundaryBox}
-                onClearShapes={shapeTools.handleClearShapes}
+                onClearShapes={() => {}}
               />
 
               <ShapeTools
@@ -423,6 +423,7 @@ const ImageProcessor: React.FC<ImageProcessorProps> = ({ imageData, onSvgGenerat
                 onAddShape={shapeTools.handleAddShape}
                 onAutoFill={shapeTools.handleAutoFillRectangles}
                 onStopAutoFill={shapeTools.handleStopAutoFill}
+                onClearShapes={shapeTools.handleClearShapes}
                 autoFilling={shapeTools.autoFilling}
                 autoFillProgress={shapeTools.autoFillProgress}
                 shapeMessage={shapeTools.shapeMessage}

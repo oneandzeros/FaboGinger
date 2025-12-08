@@ -29,7 +29,7 @@
     "initializing": "Initializing camera…",
     "preparing": "Camera preparing…",
     "stopCamera": "Stop Camera",
-    "confirmImage": "Confirm Use This Image",
+    "confirmImage": "Use This Image",
     "reselect": "Reselect",
     "error": {
       "cameraAccess": "Cannot access camera, please check permissions or use image upload"
@@ -80,12 +80,12 @@
       "hint": "Fill blank areas within the boundary box with basic shapes. Default is edge-to-edge, adjustable padding, corner radius, and stroke width. Circles ignore corner radius settings.",
       "hintNoBoundary": "Please add a boundary box first, then you can fill blank areas within the boundary box with basic shapes.",
       "management": {
-        "title": "[Management Operations]",
-        "boundaryWidth": "Boundary Box Width (mm)",
-        "boundaryHeight": "Boundary Box Height (mm)",
+        "title": "[Cutting Area]",
+        "boundaryWidth": "Width (mm)",
+        "boundaryHeight": "Height (mm)",
         "addBoundary": "Add Boundary Box",
         "reAddBoundary": "Re-add Boundary Box",
-        "clearShapes": "Clear Added Shapes"
+        "clearShapes": "Clear Shapes"
       },
       "manual": {
         "title": "[Manually Add Shapes]",
@@ -93,7 +93,7 @@
         "cornerRadius": "Corner Radius (mm)",
         "strokeWidth": "Stroke Width (mm)",
         "color": "Color",
-        "addRoundedRect": "Add Rounded Rectangle",
+        "addRoundedRect": "Add Rectangle",
         "addCircle": "Add Circle",
         "needBoundary": "Please add boundary box first"
       },

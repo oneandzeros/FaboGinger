@@ -64,10 +64,6 @@ const BoundaryBoxManager: React.FC<BoundaryBoxManagerProps> = ({
           <PlusIcon size={18} />
           <span>{hasBoundaryBox ? t('imageProcessor.shapeTools.management.reAddBoundary') : t('imageProcessor.shapeTools.management.addBoundary')}</span>
         </button>
-        <button className="btn btn-secondary" onClick={onClearShapes}>
-          <TrashIcon size={18} />
-          <span>{t('imageProcessor.shapeTools.management.clearShapes')}</span>
-        </button>
       </div>
     </div>
   );

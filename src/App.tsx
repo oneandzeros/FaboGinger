@@ -36,8 +36,8 @@ function App() {
 
   return (
     <div className="app">
-      <LanguageSwitcher />
       <header className="app-header">
+        <LanguageSwitcher />
         <div className="app-header-content">
           <div className="app-header-left">
             <img 
