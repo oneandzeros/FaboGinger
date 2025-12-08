@@ -1,6 +1,6 @@
 {
   "name": "faboginger",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "FaboGinger - 激光切割余料再利用排版工具",
   "main": "dist/main.js",
   "scripts": {
