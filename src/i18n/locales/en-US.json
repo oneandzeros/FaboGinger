@@ -38,7 +38,7 @@
   "imageProcessor": {
     "originalImage": "Original Image",
     "correctedPreview": "Corrected Preview",
-    "backToCapture": "← Back to Capture",
+    "backToCapture": "Back to Capture",
     "autoCorrect": {
       "title": "Auto Correction",
       "button": "Re-detect Corners Automatically",

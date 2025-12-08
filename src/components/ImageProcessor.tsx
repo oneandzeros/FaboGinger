@@ -21,6 +21,7 @@ import SvgPreview from './ImageProcessor/SvgPreview';
 import ShapeTools from './ImageProcessor/ShapeTools';
 import BoundaryBoxManager from './ImageProcessor/BoundaryBoxManager';
 import ProcessingControls from './ImageProcessor/ProcessingControls';
+import { CheckIcon, DownloadIcon, ArrowLeftIcon } from './Icons';
 import './ImageProcessor.css';
 
 interface ImageProcessorProps {
@@ -389,7 +390,7 @@ const ImageProcessor: React.FC<ImageProcessorProps> = ({ imageData, onSvgGenerat
         />
 
         {svgResult && (
-          <>
+          <div className="svg-result-container">
             <SvgPreview
               svgResult={svgResult}
               previewSvg={svgManipulation.previewSvg}
@@ -428,22 +429,27 @@ const ImageProcessor: React.FC<ImageProcessorProps> = ({ imageData, onSvgGenerat
                 shapeMessageTone={shapeTools.shapeMessageTone}
               />
             </div>
-            <div className="svg-actions">
-              <button className="btn btn-primary" onClick={handleConfirm}>
-                {t('imageProcessor.actions.confirm')}
-              </button>
-              <button className="btn" onClick={handleDownload} disabled={!svgResult}>
-                {t('imageProcessor.actions.download')}
-              </button>
-            </div>
-          </>
+          </div>
         )}
       </div>
 
       <div className="processor-controls">
-        <button className="btn" onClick={onBack}>
-          {t('imageProcessor.backToCapture')}
+        <button className="btn btn-secondary" onClick={onBack}>
+          <ArrowLeftIcon size={18} />
+          <span>{t('imageProcessor.backToCapture')}</span>
         </button>
+        {svgResult && (
+          <div className="processor-actions-right">
+            <button className="btn btn-primary" onClick={handleConfirm}>
+              <CheckIcon size={18} />
+              <span>{t('imageProcessor.actions.confirm')}</span>
+            </button>
+            <button className="btn btn-secondary" onClick={handleDownload} disabled={!svgResult}>
+              <DownloadIcon size={18} />
+              <span>{t('imageProcessor.actions.download')}</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

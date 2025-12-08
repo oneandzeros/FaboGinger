@@ -7,6 +7,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { RectanglePackingProgress } from '../../utils/imageProcessor';
 import { ShapeMessageTone } from '../../hooks/useShapeTools';
+import { SquareIcon, CircleIcon, PlayIcon, StopIcon, XIcon } from '../Icons';
 
 interface ShapeState {
   padding: number;
@@ -94,7 +95,8 @@ const ShapeTools: React.FC<ShapeToolsProps> = ({
             disabled={!hasBoundaryBox}
             title={!hasBoundaryBox ? t('imageProcessor.shapeTools.manual.needBoundary') : ''}
           >
-            {t('imageProcessor.shapeTools.manual.addRoundedRect')}
+            <SquareIcon size={18} />
+            <span>{t('imageProcessor.shapeTools.manual.addRoundedRect')}</span>
           </button>
           <button
             className="btn btn-secondary"
@@ -102,7 +104,8 @@ const ShapeTools: React.FC<ShapeToolsProps> = ({
             disabled={!hasBoundaryBox}
             title={!hasBoundaryBox ? t('imageProcessor.shapeTools.manual.needBoundary') : ''}
           >
-            {t('imageProcessor.shapeTools.manual.addCircle')}
+            <CircleIcon size={18} />
+            <span>{t('imageProcessor.shapeTools.manual.addCircle')}</span>
           </button>
         </div>
       </div>
@@ -205,11 +208,13 @@ const ShapeTools: React.FC<ShapeToolsProps> = ({
             disabled={autoFilling || !hasBoundaryBox}
             title={!hasBoundaryBox ? t('imageProcessor.shapeTools.manual.needBoundary') : ''}
           >
-            {autoFilling ? t('imageProcessor.shapeTools.autoFill.filling') : t('imageProcessor.shapeTools.autoFill.button')}
+            <PlayIcon size={18} />
+            <span>{autoFilling ? t('imageProcessor.shapeTools.autoFill.filling') : t('imageProcessor.shapeTools.autoFill.button')}</span>
           </button>
           {autoFilling && (
             <button className="btn btn-secondary" onClick={onStopAutoFill}>
-              {t('imageProcessor.shapeTools.autoFill.stop')}
+              <StopIcon size={18} />
+              <span>{t('imageProcessor.shapeTools.autoFill.stop')}</span>
             </button>
           )}
         </div>

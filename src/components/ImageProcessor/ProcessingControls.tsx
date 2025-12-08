@@ -6,6 +6,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Point } from '../../utils/imageProcessor';
+import { MagicIcon, CheckIcon, PlayIcon } from '../Icons';
 
 interface ProcessingControlsProps {
   processing: boolean;
@@ -53,7 +54,8 @@ const ProcessingControls: React.FC<ProcessingControlsProps> = ({
       <div className="processing-params">
         <h4>{t('imageProcessor.autoCorrect.title')}</h4>
         <button className="btn btn-primary" onClick={onAutoCorrect} disabled={processing}>
-          {processing ? t('common.processing') : t('imageProcessor.autoCorrect.button')}
+          <MagicIcon size={18} />
+          <span>{processing ? t('common.processing') : t('imageProcessor.autoCorrect.button')}</span>
         </button>
         <p className="hint">{t('imageProcessor.autoCorrect.hint')}</p>
       </div>
@@ -69,7 +71,8 @@ const ProcessingControls: React.FC<ProcessingControlsProps> = ({
           onClick={onApplyCorners}
           disabled={applyingCorners || manualCorners.length < 3}
         >
-          {applyingCorners ? t('imageProcessor.cornerCorrection.applying') : t('imageProcessor.cornerCorrection.applyButton')}
+          <CheckIcon size={18} />
+          <span>{applyingCorners ? t('imageProcessor.cornerCorrection.applying') : t('imageProcessor.cornerCorrection.applyButton')}</span>
         </button>
         {manualCorners.length < 3 && (
           <small className="hint">{t('imageProcessor.cornerCorrection.minCornersHint')}</small>
@@ -79,76 +82,83 @@ const ProcessingControls: React.FC<ProcessingControlsProps> = ({
       <div className="processing-params">
         <h4>{t('imageProcessor.actualSize.title')}</h4>
         <p className="hint">{t('imageProcessor.actualSize.hint')}</p>
-        <label>
-          {t('imageProcessor.actualSize.width')}
-          <input
-            type="number"
-            min={0}
-            step={0.1}
-            value={actualWidth}
-            onChange={(e) => onActualWidthChange(Number(e.target.value))}
-          />
-        </label>
-        <label>
-          {t('imageProcessor.actualSize.height')}
-          <input
-            type="number"
-            min={0}
-            step={0.1}
-            value={actualHeight}
-            onChange={(e) => onActualHeightChange(Number(e.target.value))}
-          />
-        </label>
+        <div className="actual-size-inputs">
+          <label>
+            {t('imageProcessor.actualSize.width')}
+            <input
+              type="number"
+              min={0}
+              step={0.1}
+              value={actualWidth}
+              onChange={(e) => onActualWidthChange(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            {t('imageProcessor.actualSize.height')}
+            <input
+              type="number"
+              min={0}
+              step={0.1}
+              value={actualHeight}
+              onChange={(e) => onActualHeightChange(Number(e.target.value))}
+            />
+          </label>
+        </div>
         <small>{t('imageProcessor.actualSize.description')}</small>
       </div>
 
       <div className="processing-params">
         <h4>{t('imageProcessor.potrace.title')}</h4>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={threshold === null}
-            onChange={(e) => onThresholdChange(e.target.checked ? null : 128)}
-          />
-          {t('imageProcessor.potrace.autoThreshold')}
-        </label>
-        {threshold !== null && (
-          <label>
-            {t('imageProcessor.potrace.threshold')} {threshold}
+        <div className="potrace-controls-row">
+          <label className="checkbox">
             <input
-              type="range"
-              min={0}
-              max={255}
-              value={threshold}
-              onChange={(e) => onThresholdChange(Number(e.target.value))}
+              type="checkbox"
+              checked={threshold === null}
+              onChange={(e) => onThresholdChange(e.target.checked ? null : 128)}
             />
+            {t('imageProcessor.potrace.autoThreshold')}
           </label>
-        )}
-        <label>
-          {t('imageProcessor.potrace.turdSize')}: {turdSize}
-          <input
-            type="range"
-            min={0}
-            max={10}
-            value={turdSize}
-            onChange={(e) => onTurdSizeChange(Number(e.target.value))}
-          />
-        </label>
-        <label>
-          {t('imageProcessor.potrace.optTolerance')}: {optTolerance.toFixed(2)}
-          <input
-            type="range"
-            min={0}
-            max={2}
-            step={0.1}
-            value={optTolerance}
-            onChange={(e) => onOptToleranceChange(Number(e.target.value))}
-          />
-        </label>
+          <div className="potrace-sliders">
+            {threshold !== null && (
+              <label>
+                {t('imageProcessor.potrace.threshold')} {threshold}
+                <input
+                  type="range"
+                  min={0}
+                  max={255}
+                  value={threshold}
+                  onChange={(e) => onThresholdChange(Number(e.target.value))}
+                />
+              </label>
+            )}
+            <label>
+              {t('imageProcessor.potrace.turdSize')}: {turdSize}
+              <input
+                type="range"
+                min={0}
+                max={10}
+                value={turdSize}
+                onChange={(e) => onTurdSizeChange(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              {t('imageProcessor.potrace.optTolerance')}: {optTolerance.toFixed(2)}
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.1}
+                value={optTolerance}
+                onChange={(e) => onOptToleranceChange(Number(e.target.value))}
+              />
+            </label>
+          </div>
+        </div>
       </div>
 
       <button className="btn btn-primary btn-process" onClick={onProcess} disabled={processing}>
-        {processing ? t('common.processing') : t('imageProcessor.generateSvg')}
+        <PlayIcon size={18} />
+        <span>{processing ? t('common.processing') : t('imageProcessor.generateSvg')}</span>
       </button>
     </div>
   );

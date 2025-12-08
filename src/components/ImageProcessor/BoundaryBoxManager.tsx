@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { PlusIcon, TrashIcon } from '../Icons';
 import { useTranslation } from 'react-i18next';
 
 interface BoundaryBoxManagerProps {
@@ -60,10 +61,12 @@ const BoundaryBoxManager: React.FC<BoundaryBoxManagerProps> = ({
       </div>
       <div className="shape-buttons">
         <button className="btn btn-primary" onClick={onAddBoundaryBox}>
-          {hasBoundaryBox ? t('imageProcessor.shapeTools.management.reAddBoundary') : t('imageProcessor.shapeTools.management.addBoundary')}
+          <PlusIcon size={18} />
+          <span>{hasBoundaryBox ? t('imageProcessor.shapeTools.management.reAddBoundary') : t('imageProcessor.shapeTools.management.addBoundary')}</span>
         </button>
         <button className="btn btn-secondary" onClick={onClearShapes}>
-          {t('imageProcessor.shapeTools.management.clearShapes')}
+          <TrashIcon size={18} />
+          <span>{t('imageProcessor.shapeTools.management.clearShapes')}</span>
         </button>
       </div>
     </div>

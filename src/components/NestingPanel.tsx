@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ArrowLeftIcon, DownloadIcon, UploadIcon, PlayIcon, XIcon } from './Icons';
 import './NestingPanel.css';
 
 interface PartSvg {
@@ -159,7 +160,10 @@ const NestingPanel: React.FC<NestingPanelProps> = ({ materialSvg, actualSize, on
   return (
     <div className="nesting-panel">
       <div className="panel-header">
-        <button className="btn" onClick={onBack}>{t('nestingPanel.back')}</button>
+        <button className="btn btn-secondary" onClick={onBack}>
+          <ArrowLeftIcon size={18} />
+          <span>{t('nestingPanel.back')}</span>
+        </button>
         <div className="size-info">
           {actualSize ? (
             <span>{t('nestingPanel.actualSize', { width: actualSize.width.toFixed(1), height: actualSize.height.toFixed(1) })}</span>
@@ -168,7 +172,8 @@ const NestingPanel: React.FC<NestingPanelProps> = ({ materialSvg, actualSize, on
           )}
         </div>
         <button className="btn btn-secondary" onClick={handleDownload}>
-          {nestedResult ? t('nestingPanel.downloadResult', { defaultValue: '下载排版结果' }) : t('nestingPanel.download')}
+          <DownloadIcon size={18} />
+          <span>{nestedResult ? t('nestingPanel.downloadResult', { defaultValue: '下载排版结果' }) : t('nestingPanel.download')}</span>
         </button>
       </div>
 
@@ -186,7 +191,8 @@ const NestingPanel: React.FC<NestingPanelProps> = ({ materialSvg, actualSize, on
               onChange={handleFileChange}
             />
             <button className="btn btn-secondary" onClick={handleUploadParts}>
-              {t('nestingPanel.partsSection.uploadParts', { defaultValue: '上传零件 SVG' })}
+              <UploadIcon size={18} />
+              <span>{t('nestingPanel.partsSection.uploadParts', { defaultValue: '上传零件 SVG' })}</span>
             </button>
             <p className="hint">{t('nestingPanel.partsSection.uploadHint', { defaultValue: '可以上传多个 SVG 文件作为要排版的零件' })}</p>
             
@@ -199,8 +205,9 @@ const NestingPanel: React.FC<NestingPanelProps> = ({ materialSvg, actualSize, on
                   {partsSvg.map((part) => (
                     <div key={part.id} className="part-item">
                       <span className="part-name">{part.name}</span>
-                      <button className="btn-small btn-secondary" onClick={() => handleRemovePart(part.id)}>
-                        {t('nestingPanel.partsSection.removePart', { defaultValue: '删除' })}
+                      <button className="btn btn-small btn-secondary" onClick={() => handleRemovePart(part.id)}>
+                        <XIcon size={14} />
+                        <span>{t('nestingPanel.partsSection.removePart', { defaultValue: '删除' })}</span>
                       </button>
                     </div>
                   ))}
@@ -249,7 +256,8 @@ const NestingPanel: React.FC<NestingPanelProps> = ({ materialSvg, actualSize, on
               onClick={handleRunDeepnest}
               disabled={isOptimizing || partsSvg.length === 0}
             >
-              {isOptimizing ? t('nestingPanel.optimizing', { defaultValue: '优化中…' }) : t('nestingPanel.optimize')}
+              <PlayIcon size={18} />
+              <span>{isOptimizing ? t('nestingPanel.optimizing', { defaultValue: '优化中…' }) : t('nestingPanel.optimize')}</span>
             </button>
             {outputMessage && <p className={`run-message ${nestedResult ? 'success' : ''}`}>{outputMessage}</p>}
           </div>

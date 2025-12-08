@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { 
+  CameraIcon, 
+  CameraCaptureIcon,
+  RotateLeftIcon, 
+  RotateRightIcon, 
+  UploadIcon, 
+  CheckIcon, 
+  XIcon, 
+  RefreshIcon 
+} from './Icons';
 import './CameraCapture.css';
 
 interface CameraCaptureProps {
@@ -190,33 +200,40 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onImageCaptured }) => {
           <>
             {!isCameraActive ? (
               <button onClick={startCamera} className="btn btn-primary" disabled={isInitializing}>
-                {isInitializing ? t('cameraCapture.initializing', { defaultValue: '正在启动摄像头…' }) : t('cameraCapture.enableCamera', { defaultValue: '启用摄像头' })}
+                <CameraIcon size={18} />
+                <span>{isInitializing ? t('cameraCapture.initializing', { defaultValue: '正在启动摄像头…' }) : t('cameraCapture.enableCamera', { defaultValue: '启用摄像头' })}</span>
               </button>
             ) : (
               <>
                 <button onClick={handleCapture} className="btn btn-primary" disabled={!isCameraReady}>
-                  {isCameraReady ? t('cameraCapture.captureButton') : t('cameraCapture.preparing', { defaultValue: '摄像头准备中…' })}
+                  <CameraCaptureIcon size={18} />
+                  <span>{isCameraReady ? t('cameraCapture.captureButton') : t('cameraCapture.preparing', { defaultValue: '摄像头准备中…' })}</span>
                 </button>
                 <button onClick={stopCamera} className="btn btn-secondary">
-                  {t('cameraCapture.stopCamera', { defaultValue: '关闭摄像头' })}
+                  <XIcon size={18} />
+                  <span>{t('cameraCapture.stopCamera', { defaultValue: '关闭摄像头' })}</span>
                 </button>
               </>
             )}
             <label className="btn btn-secondary">
-              {t('cameraCapture.uploadButton')}
+              <UploadIcon size={18} />
+              <span>{t('cameraCapture.uploadButton')}</span>
               <input type="file" accept="image/*" onChange={handleFileUpload} hidden />
             </label>
           </>
         ) : (
           <>
             <button onClick={handleConfirmImage} className="btn btn-primary">
-              {t('cameraCapture.confirmImage', { defaultValue: '确认使用此图片' })}
+              <CheckIcon size={18} />
+              <span>{t('cameraCapture.confirmImage', { defaultValue: '确认使用此图片' })}</span>
             </button>
             <button onClick={handleRotateLeft} className="btn btn-secondary">
-              {t('cameraCapture.rotateLeft')}
+              <RotateLeftIcon size={18} />
+              <span>{t('cameraCapture.rotateLeft')}</span>
             </button>
             <button onClick={handleRotateRight} className="btn btn-secondary">
-              {t('cameraCapture.rotateRight')}
+              <RotateRightIcon size={18} />
+              <span>{t('cameraCapture.rotateRight')}</span>
             </button>
             <button 
               onClick={() => {
@@ -226,7 +243,8 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ onImageCaptured }) => {
               }} 
               className="btn btn-secondary"
             >
-              {t('cameraCapture.reselect', { defaultValue: '重新选择' })}
+              <RefreshIcon size={18} />
+              <span>{t('cameraCapture.reselect', { defaultValue: '重新选择' })}</span>
             </button>
           </>
         )}

@@ -38,7 +38,7 @@
   "imageProcessor": {
     "originalImage": "原始图片",
     "correctedPreview": "校正预览",
-    "backToCapture": "← 返回重拍",
+    "backToCapture": "返回重拍",
     "autoCorrect": {
       "title": "自动校正",
       "button": "重新自动识别角点",
